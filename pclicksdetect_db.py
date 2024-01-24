@@ -12,8 +12,8 @@ import pyutils.utils as utils
 
 class LocalDB_PClicksDetect(base_db.LocalDB_Base):
 
-    def __init__(self, save_locally=True, reload=False, data_dir=None):
-        super().__init__(save_locally, reload, data_dir)
+    def __init__(self, save_locally=True, data_dir=None):
+        super().__init__(save_locally, data_dir)
 
     @property
     def protocol_name(self):

@@ -14,6 +14,7 @@ import json
 import time
 import pyutils.utils as utils
 import math
+from datetime import date
 
 ## Unit and Session Data ##
 
@@ -118,10 +119,19 @@ def get_session_data(session_ids):
             # remove data into its own dictionary
             trial_data = __parse_json(trial.pop('data'))
             trial_data.pop('n_done_trials')  # this is redundant
-            # convert all lists of numbers to numpy arrays
-            for key, value in trial_data.items():
+
+            # preload keys and values so we can edit the dictionary in the for loop
+            key_val_list = list(trial_data.items())
+            for key, value in key_val_list:
+                # convert all lists of numbers to numpy arrays
                 if not utils.is_scalar(value) and not len(value) == 0 and isinstance(value[0], numbers.Number):
                     trial_data[key] = np.array(value)
+                # flatten any dictionary entries in trial data
+                if utils.is_dict(value):
+                    trial_data.update(**value)
+                    # remove the original dictionary entry
+                    trial_data.pop(key)
+
             # merge all dictionaries into single row
             sess_data.append({**sess, **trial, **trial_data})
 
@@ -137,7 +147,7 @@ def get_session_data(session_ids):
     print('Retrieved {0} sessions in {1:.1f} s'.format(len(session_ids), time.perf_counter()-start))
 
     if len(sess_data) > 0:
-        sess_data = sess_data.sort_values(['sessid', 'trial'])
+        sess_data.sort_values(['sessid', 'trial'], inplace=True, ignore_index=True)
 
     return sess_data
 
@@ -180,7 +190,7 @@ def get_subj_unit_ids(subj_ids):
 
 
 def get_sess_unit_ids(sess_ids):
-    '''Gets all unit ids for the given session ids. 
+    '''Gets all unit ids for the given session ids.
     Returns a dictionary of unit ids indexed by session id'''
 
     if utils.is_scalar(sess_ids):
@@ -203,7 +213,7 @@ def get_sess_unit_ids(sess_ids):
 
 
 def get_subj_unit_sess_ids(subj_ids):
-    '''Gets all session ids that have unit data for the given subject ids. 
+    '''Gets all session ids that have unit data for the given subject ids.
     Returns a dictionary of session ids indexed by subject id'''
 
     if utils.is_scalar(subj_ids):
@@ -226,7 +236,7 @@ def get_subj_unit_sess_ids(subj_ids):
 
 
 def get_unit_sess_ids(unit_ids):
-    '''Gets all session ids for the given unit ids. 
+    '''Gets all session ids for the given unit ids.
     Returns a dictionary of unit ids indexed by session id'''
 
     if utils.is_scalar(unit_ids):
@@ -248,9 +258,9 @@ def get_unit_sess_ids(unit_ids):
     return df.to_dict()
 
 
-def get_subj_sess_ids(subj_ids, stage=None):
-    '''Gets all session ids for the given subject ids, optionally filtering on a stage number.
-    If no stage is provided, will pull only the last stage in the database.
+def get_subj_sess_ids(subj_ids, stage=None, date_start=None, date_end=None):
+    '''Gets all session ids for the given subject ids, optionally filtering on a stage number,
+    start date or end date. If no stage is provided, will pull only the last stage in the database.
     Returns a dictionary of session ids indexed by subject id'''
 
     if utils.is_scalar(subj_ids):
@@ -265,9 +275,17 @@ def get_subj_sess_ids(subj_ids, stage=None):
         stage = cur.fetchall()
         stage = list(stage[0].values())[0]
 
+    if date_start is None:
+        date_start = date(1900,1,1).isoformat()
+
+    if date_end is None:
+        date_end = date.today().isoformat()
+
     # get session and subject ids but filter out sessions without trials
-    cur.execute('select sessid, subjid from beh.sessions as a where startstage={0} and subjid in ({1}) and exists (select 1 from beh.trials as b where a.sessid=b.sessid)'
-                .format(str(stage), ','.join([str(i) for i in subj_ids])))
+    cur.execute('''select sessid, subjid from beh.sessions as a where
+                startstage={0} and subjid in ({1}) and sessiondate >= \'{2}\' and sessiondate <= \'{3}\'
+                and exists (select 1 from beh.trials as b where a.sessid=b.sessid)'''
+                .format(str(stage), ','.join([str(i) for i in subj_ids]), date_start, date_end))
     ids = cur.fetchall()
 
     # group the session ids by subject
@@ -309,7 +327,7 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage=None):
         df = df[df['stage'] == stage]
 
     if not protocol is None:
-        df = df[df['protocol'].str.contains(protocol, case=False)]
+        df = df[df['protocol'].str.fullmatch(protocol, case=False)]
 
     return df
 

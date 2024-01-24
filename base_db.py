@@ -19,7 +19,7 @@ import pyutils.utils as utils
 # handling of behaviorally relevant method variables
 class LocalDB_Base(ABC):
 
-    def __init__(self, save_locally=True, reload=False, data_dir=None):
+    def __init__(self, save_locally=True, data_dir=None):
         '''
         Initialize the local database
 
@@ -30,7 +30,7 @@ class LocalDB_Base(ABC):
         data_dir : The directory where the local data will be persisted. The default is ~/db_data/[protocol_name].
 
         '''
-        self._reload = reload
+
         self._save_locally = save_locally
 
         if data_dir is None or not path.exists(data_dir):
@@ -68,13 +68,14 @@ class LocalDB_Base(ABC):
         self.protocol_subject_ids = db_access.get_unit_protocol_subj_ids(self.protocol_name)
         return self.protocol_subject_ids
 
-    def get_unit_data(self, unit_ids):
+    def get_unit_data(self, unit_ids, reload=False):
         '''
         Gets unit data for the given ids and optionally persists the retreived data
 
         Parameters
         ----------
         unit_ids : list of unit ids to retreive
+        reload : Whether to reload the local information from the database. Default False.
 
         Returns
         -------
@@ -85,7 +86,7 @@ class LocalDB_Base(ABC):
         unit_data = pd.DataFrame()
 
         # see if we need to pull any units from the database
-        if self._reload:
+        if reload:
             missing_units = unit_ids
         else:
             missing_units = np.setdiff1d(unit_ids, self.local_units['unitid'])
@@ -111,7 +112,7 @@ class LocalDB_Base(ABC):
                     # this is the first time we've loaded data for this session
                     sess_unit_data = new_unit_data
                 else:  # we have data already
-                    if self._reload:  # we need to remove reloaded rows
+                    if reload:  # we need to remove reloaded rows
                         sess_unit_data.drop(sess_unit_data[sess_unit_data['unitid'].isin(
                             new_unit_data['unitid'])].index, inplace=True)
 
@@ -174,18 +175,22 @@ class LocalDB_Base(ABC):
 
         return self.get_unit_data(self.local_units['unitid'])
 
-    def get_behavior_data(self, sess_ids):
+    def get_behavior_data(self, sess_ids, reload=False):
         '''
         Gets behavioral data for the given session ids and optionally persists the retreived data
 
         Parameters
         ----------
         sess_ids : list of session ids to retreive
+        reload : Whether to reload the local information from the database. Default False.
 
         Returns
         -------
         A pandas table of behavioral data
         '''
+
+        if utils.is_scalar(sess_ids):
+            sess_ids = [sess_ids]
 
         sess_ids = sorted(sess_ids)
         beh_data = pd.DataFrame()
@@ -194,14 +199,14 @@ class LocalDB_Base(ABC):
             # see if data already exists
             data_path = self._get_sess_beh_path(sess_id)
 
-            if path.exists(data_path) and not self._reload:
+            if path.exists(data_path) and not reload:
                 sess_data = pd.read_pickle(data_path)
             else:  # reload data
                 sess_data = db_access.get_session_data(sess_id)
-                sess_data = self._format_sess_data(sess_data)
-
                 if len(sess_data) == 0:
                     continue
+
+                sess_data = self._format_sess_data(sess_data)
 
                 if self._save_locally:
                     utils.check_make_dir(data_path)
@@ -209,10 +214,10 @@ class LocalDB_Base(ABC):
 
                 self.__update_local_sessions(sess_data)
 
-            beh_data = pd.concat([beh_data, sess_data])
+            beh_data = pd.concat([beh_data, sess_data], ignore_index=True)
 
         if len(beh_data) > 0:
-            beh_data = beh_data.sort_values(['sessid', 'trial']).reset_index()
+            beh_data = beh_data.sort_values(['sessid', 'trial']).reset_index(drop=True)
 
         return beh_data
 
