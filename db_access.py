@@ -74,7 +74,7 @@ def get_unit_data(unit_ids):
 
     print('Retrieved {0} units in {1:.1f} s'.format(len(unit_ids), time.perf_counter()-start))
 
-    return unit_data.sort_values('unitid')
+    return unit_data.sort_values('unitid', ignore_index=True).infer_objects()
 
 
 def get_session_data(session_ids):
@@ -149,7 +149,7 @@ def get_session_data(session_ids):
     if len(sess_data) > 0:
         sess_data.sort_values(['sessid', 'trial'], inplace=True, ignore_index=True)
 
-    return sess_data
+    return sess_data.infer_objects()
 
 
 ## Unit and Session IDs ##
@@ -258,10 +258,13 @@ def get_unit_sess_ids(unit_ids):
     return df.to_dict()
 
 
-def get_subj_sess_ids(subj_ids, stage=None, date_start=None, date_end=None):
-    '''Gets all session ids for the given subject ids, optionally filtering on a stage number,
+def get_subj_sess_ids(subj_ids, stage_num=None, stage_name=None, protocol=None, date_start=None, date_end=None):
+    '''Gets all session ids for the given subject ids, optionally filtering on a stage number or name, protocol,
     start date or end date. If no stage is provided, will pull only the last stage in the database.
     Returns a dictionary of session ids indexed by subject id'''
+
+    if stage_name is not None and stage_num is not None:
+        raise ValueError('Can only provide one form of stage identifier')
 
     if utils.is_scalar(subj_ids):
         subj_ids = [subj_ids]
@@ -269,11 +272,40 @@ def get_subj_sess_ids(subj_ids, stage=None, date_start=None, date_end=None):
     db = __get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
-    if stage is None:
-        cur.execute('select max(startstage) from beh.sessions where subjid in ({0})'
+    # get the current protocol for subjects, if not provided
+    if protocol is None:
+        cur.execute('select distinct protocol from met.current_settings where subjid in ({0})'
                     .format(','.join([str(i) for i in subj_ids])))
-        stage = cur.fetchall()
-        stage = list(stage[0].values())[0]
+        protocol = cur.fetchall()
+        protocol = list(protocol[0].values())
+        
+        if len(protocol) > 1:
+            raise ValueError('Subjects are currently in different protocols. Specify a protocol or change the subject ids.')
+        else:
+            protocol = protocol[0]
+
+    # get the current protocol for subjects, if not provided
+    if stage_num is None:
+        # if stage name is provided, convert to stage number for animals
+        if stage_name is not None:
+            cur.execute('''select distinct stage from met.settings where settingsname=\'{0}\' and protocol=\'{1}\'
+                           and expgroupid in (select expgroupid from beh.sessions where protocol=\'{1}\' and subjid in ({2}))'''.format(
+                           stage_name, protocol, ','.join([str(i) for i in subj_ids])))
+            stage_num = cur.fetchall()
+            stage_num = list(stage_num[0].values())
+            
+        # else get the current active stage for the protocol
+        else:
+            cur.execute('select distinct stage from met.current_settings where subjid in ({0}) and protocol=\'{1}\''
+                        .format(','.join([str(i) for i in subj_ids]), protocol))
+            stage_num = cur.fetchall()
+            stage_num = list(stage_num[0].values())
+        
+        # make sure there is only one stage number
+        if len(stage_num) > 1:
+            raise ValueError('Subjects are currently in different stages. Specify a stage or change the subject ids.')
+        else:
+            stage_num = stage_num[0]
 
     if date_start is None:
         date_start = date(1900,1,1).isoformat()
@@ -283,9 +315,9 @@ def get_subj_sess_ids(subj_ids, stage=None, date_start=None, date_end=None):
 
     # get session and subject ids but filter out sessions without trials
     cur.execute('''select sessid, subjid from beh.sessions as a where
-                startstage={0} and subjid in ({1}) and sessiondate >= \'{2}\' and sessiondate <= \'{3}\'
+                startstage={0} and protocol=\'{1}\' and subjid in ({2}) and sessiondate >= \'{3}\' and sessiondate <= \'{4}\'
                 and exists (select 1 from beh.trials as b where a.sessid=b.sessid)'''
-                .format(str(stage), ','.join([str(i) for i in subj_ids]), date_start, date_end))
+                .format(str(stage_num), protocol, ','.join([str(i) for i in subj_ids]), date_start, date_end))
     ids = cur.fetchall()
 
     # group the session ids by subject
@@ -297,10 +329,13 @@ def get_subj_sess_ids(subj_ids, stage=None, date_start=None, date_end=None):
     return df.to_dict()
 
 
-def get_active_subj_stage(protocol=None, subj_ids=None, stage=None):
+def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_name=None):
     '''Gets all active subjects and their current protocol and stage.
     Can optionally filter results by protocol, subject ids, and stage'''
 
+    if stage_name is not None and stage_num is not None:
+        raise ValueError('Can only provide one form of stage identifier')
+        
     db = __get_connector()
 
     # first get all active subjects
@@ -315,7 +350,9 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage=None):
 
     # get all the data
     cur = db.cursor(buffered=True, dictionary=True)
-    cur.execute('SELECT subjid, startstage, protocol FROM beh.sessions WHERE sessid IN (SELECT MAX(sessid) FROM beh.sessions GROUP BY subjid) AND subjid IN ({0}) ORDER BY subjid'
+    # cur.execute('SELECT subjid, startstage, protocol FROM beh.sessions WHERE sessid IN (SELECT MAX(sessid) FROM beh.sessions GROUP BY subjid) AND subjid IN ({0}) ORDER BY subjid'
+    #             .format(','.join([str(i) for i in active_rats])))
+    cur.execute('SELECT subjid, protocol, settingsname, stage FROM met.current_settings WHERE subjid IN ({0}) ORDER BY subjid'
                 .format(','.join([str(i) for i in active_rats])))
     data = cur.fetchall()
 
@@ -323,11 +360,14 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage=None):
     df = pd.DataFrame.from_dict(data).rename(columns={'startstage': 'stage'})
 
     # optionally filter based on protocol and stage
-    if not stage is None:
-        df = df[df['stage'] == stage]
+    if not stage_num is None:
+        df = df[df['stage'] == stage_num]
 
     if not protocol is None:
         df = df[df['protocol'].str.fullmatch(protocol, case=False)]
+        
+    if not stage_name is None:
+        df = df[df['settingsname'].str.fullmatch(stage_name, case=False)]
 
     return df
 
