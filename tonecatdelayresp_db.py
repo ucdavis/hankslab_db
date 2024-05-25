@@ -34,6 +34,7 @@ class LocalDB_ToneCatDelayResp(base_db.LocalDB_Base):
         
         # determine side and time of a response poke after a bail
         bail_sel = sess_data['bail'] == True
+        # TODO: Update this for the new ITI implementation where ITI is taken at the beginning of the trial
         sess_data.loc[bail_sel, ['choice', 'response_time']] = sess_data.loc[bail_sel].apply(self.__get_bail_response_info, axis=1, result_type='expand')
         
         # determine side of previous stimulus, correct choice, and made choice of the previous full trial

@@ -79,13 +79,16 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
                 sess_data['block_rewards'] = poss_rewards.apply(lambda x: '{:.0f}/{:.0f}'.format(x['fast_reward_rate'], x['slow_reward_rate']), axis=1)
                 sess_data['block_rewards_delay'] = sess_data.apply(lambda x: '{}-{:.0f}'.format(x['block_rewards'], x['slow_delay']), axis=1)
                 
-                sess_data['chose_fast_port'] = sess_data['choice'] == sess_data['fast_port']
-                sess_data['chose_slow_port'] = ~sess_data['chose_fast_port'] & sess_data['hit']
+                sess_data['port_speed_choice'] = sess_data.apply(lambda x: 'fast' if x['choice'] == x['fast_port'] else 'slow' if x['choice'] != 'none' else 'none', axis=1)
+                sess_data['chose_fast_port'] = sess_data['port_speed_choice'] == 'fast'
+                sess_data['chose_slow_port'] = sess_data['port_speed_choice'] == 'slow'
                 sess_data['choice_delay'] = sess_data.apply(
                     lambda x: x['reward_delay_left'] if x['chose_left'] else x['reward_delay_right'] if x['chose_right'] else np.nan, axis=1)
                 sess_data['choice_rate'] = sess_data.apply(
                     lambda x: x['reward_rate_left'] if x['chose_left'] else x['reward_rate_right'] if x['chose_right'] else np.nan, axis=1)
+                
                 sess_data['cpoke_in_latency'] = sess_data['cpoke_in_time'] - sess_data['cport_on_time']
+                sess_data['next_cpoke_in_latency'] = np.append(sess_data['cpoke_in_latency'][1:].to_numpy(), np.nan)
                 
                 
         return sess_data

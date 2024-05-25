@@ -16,7 +16,81 @@ import pyutils.utils as utils
 import math
 from datetime import date
 
-## Unit and Session Data ##
+# %% Get Behavioral or Physiological Data
+
+def get_session_data(session_ids):
+    '''Gets all behavioral data for the given session ids'''
+
+    if utils.is_scalar(session_ids):
+        session_ids = [session_ids]
+
+    if len(session_ids) > 1:
+        print('Retrieving {0} sessions...'.format(len(session_ids)))
+
+    start = time.perf_counter()
+
+    db = __get_connector()
+    cur = db.cursor(dictionary=True, buffered=True)
+
+    id_str = ','.join([str(i) for i in session_ids])
+
+    sess_query = ('select sessid, subjid, sessiondate, starttime, protocol, startstage, rigid '
+                  'from beh.sessions where sessid in ({0}) order by sessid').format(id_str)
+
+    trial_query = ('select sessid, trialtime, trialnum, data, parsed_events from beh.trials '
+                   'where sessid in ({0}) order by sessid, trialnum')
+
+    # get all session data
+    cur.execute(sess_query)
+    sess_rows = cur.fetchall()
+
+    sess_data = []
+
+    sess_start = time.perf_counter()
+    for i, sess in enumerate(sess_rows):
+
+        # fetch all trials for this session
+        cur.execute(trial_query.format(sess['sessid']))
+        trials = cur.fetchall()
+
+        for trial in trials:
+            # read out data stored in json
+            trial['parsed_events'] = __parse_json(trial['parsed_events'])
+            # remove data into its own dictionary
+            trial_data = __parse_json(trial.pop('data'))
+            trial_data.pop('n_done_trials')  # this is redundant
+
+            # preload keys and values so we can edit the dictionary in the for loop
+            key_val_list = list(trial_data.items())
+            for key, value in key_val_list:
+                # convert all lists of numbers to numpy arrays
+                if not utils.is_scalar(value) and not len(value) == 0 and isinstance(value[0], numbers.Number):
+                    trial_data[key] = np.array(value)
+                # flatten any dictionary entries in trial data
+                if utils.is_dict(value):
+                    trial_data.update(**value)
+                    # remove the original dictionary entry
+                    trial_data.pop(key)
+
+            # merge all dictionaries into single row
+            sess_data.append({**sess, **trial, **trial_data})
+
+        if (i % 5 == 0 or i == len(sess_rows)-1) and not i == 0:
+            print('Retrieved {0}/{1} sessions in {2:.1f} s'.format(i +
+                  1, len(session_ids), time.perf_counter()-sess_start))
+
+    sess_data = pd.DataFrame.from_dict(sess_data)
+    sess_data.rename(columns={'trialnum': 'trial'}, inplace=True)
+
+    cur.close()
+    db.close()
+
+    print('Retrieved {0} sessions in {1:.1f} s'.format(len(session_ids), time.perf_counter()-start))
+
+    if len(sess_data) > 0:
+        sess_data.sort_values(['sessid', 'trial'], inplace=True, ignore_index=True)
+
+    return sess_data.infer_objects()
 
 
 def get_unit_data(unit_ids):
@@ -70,6 +144,7 @@ def get_unit_data(unit_ids):
     # convert to data table
     unit_data = pd.DataFrame.from_dict(db_data)
 
+    cur.close()
     db.close()
 
     print('Retrieved {0} units in {1:.1f} s'.format(len(unit_ids), time.perf_counter()-start))
@@ -77,91 +152,83 @@ def get_unit_data(unit_ids):
     return unit_data.sort_values('unitid', ignore_index=True).infer_objects()
 
 
-def get_session_data(session_ids):
-    '''Gets all behavioral data for the given session ids'''
+def get_fp_data(fp_ids):
+    '''Gets all fiber photometry data for the given ids'''
 
-    if utils.is_scalar(session_ids):
-        session_ids = [session_ids]
+    if utils.is_scalar(fp_ids):
+        fp_ids = [fp_ids]
 
-    if len(session_ids) > 1:
-        print('Retrieving {0} sessions...'.format(len(session_ids)))
-
+    print('Retrieving {0} fp recordings...'.format(len(fp_ids)))
     start = time.perf_counter()
 
     db = __get_connector()
-    cur_sess = db.cursor(dictionary=True, buffered=True)
-    cur_trial = db.cursor(dictionary=True, buffered=True)
+    cur = db.cursor(dictionary=True, buffered=True)
 
-    id_str = ','.join([str(i) for i in session_ids])
+    query = '''select a.id, a.subjid, a.sessid, a.trial_start_timestamps, a.time_data, a.fp_data, a.comments,
+               b.region, b.AP, b.ML, b.DV, b.fiber_type from met.fp_data as a inner join met.fp_implants as b
+               on a.implant_id=b.id where a.id in ({0})'''
 
-    sess_query = ('select sessid, subjid, sessiondate, starttime, protocol, startstage, rigid '
-                  'from beh.sessions where sessid in ({0}) order by sessid').format(id_str)
+    max_rows = 1  # number of rows to retrieve at once
 
-    trial_query = ('select sessid, trialtime, trialnum, data, parsed_events from beh.trials '
-                   'where sessid in ({0}) order by sessid, trialnum')
+    if len(fp_ids) < max_rows:
+        cur.execute(query.format(','.join([str(i) for i in fp_ids])))
+        db_data = cur.fetchall()
+    else:
+        n_iter = math.ceil(len(fp_ids)/max_rows)
+        batch_start = time.perf_counter()
+        for i in range(n_iter):
 
-    # get all session data
-    cur_sess.execute(sess_query)
-    sess_rows = cur_sess.fetchall()
+            # get batch of ids to load
+            if i < n_iter:
+                batch_ids = fp_ids[i*max_rows:(i+1)*max_rows]
+            else:
+                batch_ids = fp_ids[i*max_rows:]
 
-    sess_data = []
+            # load data
+            cur.execute(query.format(','.join([str(i) for i in batch_ids])))
+            rows = cur.fetchall()
 
-    sess_start = time.perf_counter()
-    for i, sess in enumerate(sess_rows):
+            if i == 0:
+                db_data = rows
+            else:
+                db_data = db_data + rows
 
-        # fetch all trials for this session
-        cur_trial.execute(trial_query.format(sess['sessid']))
-        trials = cur_trial.fetchall()
+            print('Retrieved {0}/{1} fp recordings in {2:.1f} s'.format(i*max_rows+cur.rowcount,
+                  len(fp_ids), time.perf_counter()-batch_start))
 
-        for trial in trials:
-            # read out data stored in json
-            trial['parsed_events'] = __parse_json(trial['parsed_events'])
-            # remove data into its own dictionary
-            trial_data = __parse_json(trial.pop('data'))
-            trial_data.pop('n_done_trials')  # this is redundant
+    # read out data stored in json
+    for i, row in enumerate(db_data):
+        db_data[i]['trial_start_timestamps'] = np.array(__parse_json(row['trial_start_timestamps']))
+        db_data[i]['time_data'] = __parse_json(row['time_data'])
+        db_data[i]['fp_data'] = __parse_json(row['fp_data'])
 
-            # preload keys and values so we can edit the dictionary in the for loop
-            key_val_list = list(trial_data.items())
-            for key, value in key_val_list:
-                # convert all lists of numbers to numpy arrays
-                if not utils.is_scalar(value) and not len(value) == 0 and isinstance(value[0], numbers.Number):
-                    trial_data[key] = np.array(value)
-                # flatten any dictionary entries in trial data
-                if utils.is_dict(value):
-                    trial_data.update(**value)
-                    # remove the original dictionary entry
-                    trial_data.pop(key)
+        for key, signal in db_data[i]['fp_data'].items():
+            db_data[i]['fp_data'][key] = np.array(signal)
 
-            # merge all dictionaries into single row
-            sess_data.append({**sess, **trial, **trial_data})
+    # convert to data table
+    fp_data = pd.DataFrame.from_dict(db_data)
 
-        if (i % 5 == 0 or i == len(sess_rows)-1) and not i == 0:
-            print('Retrieved {0}/{1} sessions in {2:.1f} s'.format(i +
-                  1, len(session_ids), time.perf_counter()-sess_start))
-
-    sess_data = pd.DataFrame.from_dict(sess_data)
-    sess_data.rename(columns={'trialnum': 'trial'}, inplace=True)
-
+    cur.close()
     db.close()
 
-    print('Retrieved {0} sessions in {1:.1f} s'.format(len(session_ids), time.perf_counter()-start))
+    print('Retrieved {0} fp recordings in {1:.1f} s'.format(len(fp_ids), time.perf_counter()-start))
 
-    if len(sess_data) > 0:
-        sess_data.sort_values(['sessid', 'trial'], inplace=True, ignore_index=True)
-
-    return sess_data.infer_objects()
+    return fp_data.sort_values('id', ignore_index=True).infer_objects()
 
 
-## Unit and Session IDs ##
+# %% Get IDs
 
 def get_unit_protocol_subj_ids(protocol):
     ''' Gets all subject ids with unit information for a particular protocol '''
     db = __get_connector()
     cur = db.cursor(buffered=True)
 
-    cur.execute('select distinct a.subjid from beh.sessions a, met.units b where protocol=\'{0}\' and a.sessid=b.sessid'
+    cur.execute('select distinct a.subjid from beh.sessions a, met.units b where a.protocol=\'{0}\' and a.sessid=b.sessid'
                 .format(protocol))
     ids = cur.fetchall()
+
+    cur.close()
+    db.close()
 
     # flatten list of tuples
     return sorted([i[0] for i in ids])
@@ -179,6 +246,9 @@ def get_subj_unit_ids(subj_ids):
     cur.execute('select subjid, unitid from met.units where subjid in ({0})'
                 .format(','.join([str(i) for i in subj_ids])))
     ids = cur.fetchall()
+
+    cur.close()
+    db.close()
 
     # group the unit ids by subject
     # Note: this is much faster than repeatedly querying the database
@@ -203,6 +273,9 @@ def get_sess_unit_ids(sess_ids):
                 .format(','.join([str(i) for i in sess_ids])))
     ids = cur.fetchall()
 
+    cur.close()
+    db.close()
+
     # group the unit ids by session
     # Note: this is much faster than repeatedly querying the database
     df = pd.DataFrame.from_dict(ids)
@@ -225,6 +298,9 @@ def get_subj_unit_sess_ids(subj_ids):
     cur.execute('select distinct sessid, subjid from met.units where subjid in ({0})'
                 .format(','.join([str(i) for i in subj_ids])))
     ids = cur.fetchall()
+
+    cur.close()
+    db.close()
 
     # group the session ids by subject
     # Note: this is much faster than repeatedly querying the database
@@ -249,11 +325,129 @@ def get_unit_sess_ids(unit_ids):
                 .format(','.join([str(i) for i in unit_ids])))
     ids = cur.fetchall()
 
+    cur.close()
+    db.close()
+
     # group the unit ids by session
     # Note: this is much faster than repeatedly querying the database
     df = pd.DataFrame.from_dict(ids)
     # group unit ids into a sorted list by session id
     df = df.groupby('sessid').agg(list)['unitid'].apply(lambda x: sorted(x))
+
+    return df.to_dict()
+
+
+def get_fp_protocol_subj_sess_ids(protocol, stage_num, subj_ids=None):
+    '''Gets all session ids for the given protocol/stage with fp data, optionally filtering on subjects
+    Returns a dictionary of session ids indexed by subject id'''
+
+    db = __get_connector()
+    cur = db.cursor(buffered=True, dictionary=True)
+
+    if subj_ids is None:
+        cur.execute('select distinct a.subjid, a.sessid from beh.sessions a, met.fp_data b where a.protocol=\'{}\' and a.startstage={} and a.sessid=b.sessid'
+                .format(protocol, stage_num))
+    else:
+        if utils.is_scalar(subj_ids):
+            subj_ids = [subj_ids]
+
+        cur.execute('select distinct a.subjid, a.sessid from beh.sessions a, met.fp_data b where a.protocol=\'{}\' and a.startstage={} and a.subjid in ({}) and a.sessid=b.sessid'
+                .format(protocol, stage_num, ','.join([str(i) for i in subj_ids])))
+
+    ids = cur.fetchall()
+
+    cur.close()
+    db.close()
+
+    # group the fp ids by session
+    # Note: this is much faster than repeatedly querying the database
+    df = pd.DataFrame.from_dict(ids)
+    # group unit ids into a sorted list by session id
+    df = df.groupby('subjid').agg(list)['sessid'].apply(lambda x: sorted(x))
+
+    return df.to_dict()
+
+
+def get_sess_fp_ids(sess_ids):
+    '''Gets all fp ids for the given session ids.
+    Returns a dictionary of fp ids indexed by session id'''
+
+    if utils.is_scalar(sess_ids):
+        sess_ids = [sess_ids]
+
+    db = __get_connector()
+    cur = db.cursor(buffered=True, dictionary=True)
+
+    cur.execute('select id, sessid from met.fp_data where sessid in ({0})'
+                .format(','.join([str(i) for i in sess_ids])))
+    ids = cur.fetchall()
+
+    cur.close()
+    db.close()
+
+    # group the fp ids by session
+    # Note: this is much faster than repeatedly querying the database
+    df = pd.DataFrame.from_dict(ids)
+    # group unit ids into a sorted list by session id
+    df = df.groupby('sessid').agg(list)['id'].apply(lambda x: sorted(x))
+
+    return df.to_dict()
+
+
+def get_fp_sess_ids(fp_ids):
+    '''Gets all session ids for the given fp ids.
+    Returns a dictionary of fp ids indexed by session id'''
+
+    if utils.is_scalar(fp_ids):
+        fp_ids = [fp_ids]
+
+    db = __get_connector()
+    cur = db.cursor(buffered=True, dictionary=True)
+
+    cur.execute('select id, sessid from met.fp_data where id in ({0})'
+                .format(','.join([str(i) for i in fp_ids])))
+    ids = cur.fetchall()
+
+    cur.close()
+    db.close()
+
+    # group the fp ids by session
+    # Note: this is much faster than repeatedly querying the database
+    df = pd.DataFrame.from_dict(ids)
+    # group fp ids into a sorted list by session id
+    df = df.groupby('sessid').agg(list)['id'].apply(lambda x: sorted(x))
+
+    return df.to_dict()
+
+
+def get_fp_implant_info(subj_ids=None):
+    '''Get fiber photometry implant information, optionally limited to the given subject ids.
+    Returns a dictionary of implant information keyed by subject id'''
+
+    db = __get_connector()
+
+
+    if subj_ids is None:
+        cur = db.cursor(buffered=True)
+        cur.execute('select distinct subjid from met.fp_implants')
+        subj_ids = utils.flatten(cur.fetchall())
+        cur.close()
+    elif utils.is_scalar(subj_ids):
+        subj_ids = [subj_ids]
+
+    cur = db.cursor(buffered=True, dictionary=True)
+    cur.execute('select subjid, region from met.fp_implants where subjid in ({0})'
+                .format(','.join([str(i) for i in subj_ids])))
+    info = cur.fetchall()
+
+    cur.close()
+    db.close()
+
+    # group the fp info by subject id
+    # Note: this is much faster than repeatedly querying the database
+    df = pd.DataFrame.from_dict(info)
+    # group fp info into a sorted list by subject id
+    df = df.groupby('subjid').agg(list)['region'].apply(lambda x: sorted(x))
 
     return df.to_dict()
 
@@ -278,7 +472,7 @@ def get_subj_sess_ids(subj_ids, stage_num=None, stage_name=None, protocol=None, 
                     .format(','.join([str(i) for i in subj_ids])))
         protocol = cur.fetchall()
         protocol = list(protocol[0].values())
-        
+
         if len(protocol) > 1:
             raise ValueError('Subjects are currently in different protocols. Specify a protocol or change the subject ids.')
         else:
@@ -293,14 +487,14 @@ def get_subj_sess_ids(subj_ids, stage_num=None, stage_name=None, protocol=None, 
                            stage_name, protocol, ','.join([str(i) for i in subj_ids])))
             stage_num = cur.fetchall()
             stage_num = list(stage_num[0].values())
-            
+
         # else get the current active stage for the protocol
         else:
             cur.execute('select distinct stage from met.current_settings where subjid in ({0}) and protocol=\'{1}\''
                         .format(','.join([str(i) for i in subj_ids]), protocol))
             stage_num = cur.fetchall()
             stage_num = list(stage_num[0].values())
-        
+
         # make sure there is only one stage number
         if len(stage_num) > 1:
             raise ValueError('Subjects are currently in different stages. Specify a stage or change the subject ids.')
@@ -320,6 +514,9 @@ def get_subj_sess_ids(subj_ids, stage_num=None, stage_name=None, protocol=None, 
                 .format(str(stage_num), protocol, ','.join([str(i) for i in subj_ids]), date_start, date_end))
     ids = cur.fetchall()
 
+    cur.close()
+    db.close()
+
     # group the session ids by subject
     # Note: this is much faster than repeatedly querying the database
     df = pd.DataFrame.from_dict(ids)
@@ -335,7 +532,7 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_na
 
     if stage_name is not None and stage_num is not None:
         raise ValueError('Can only provide one form of stage identifier')
-        
+
     db = __get_connector()
 
     # first get all active subjects
@@ -356,6 +553,9 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_na
                 .format(','.join([str(i) for i in active_rats])))
     data = cur.fetchall()
 
+    cur.close()
+    db.close()
+
     # format into a dataframe
     df = pd.DataFrame.from_dict(data).rename(columns={'startstage': 'stage'})
 
@@ -365,14 +565,117 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_na
 
     if not protocol is None:
         df = df[df['protocol'].str.fullmatch(protocol, case=False)]
-        
+
     if not stage_name is None:
         df = df[df['settingsname'].str.fullmatch(stage_name, case=False)]
 
     return df
 
 
-## PRIVATE METHODS ##
+# %% Add/Modify Data
+
+def add_procedure(subj_id, description, implant_type, brain_regions):
+    '''Add a procedure to the procedures table'''
+
+    db = __get_connector()
+    data = {'subjid': subj_id,
+            'description': description,
+            'implant_type': implant_type,
+            'brain_regions_targeted': brain_regions}
+
+    __insert(db, 'met.procedures', data)
+
+    db.close()
+
+
+def add_fp_implant(subj_id, region, fiber_type, AP, ML, DV, comments=None):
+    '''Add a fiber photometry implant to the fp_implants table'''
+
+    db = __get_connector()
+    cur = db.cursor()
+
+    cur.execute('select id from met.procedures where subjid={0}'.format(subj_id))
+    procedure_id = cur.fetchone()
+
+    if procedure_id is None:
+        raise Exception('No procedures have been added for the given subject. Add a procedure for the subject before adding an implant')
+    else:
+        procedure_id = procedure_id[0]
+
+    data = {'subjid': subj_id,
+            'procedure_id': procedure_id,
+            'region': region,
+            'fiber_type': fiber_type,
+            'AP': AP,
+            'ML': ML,
+            'DV': DV,
+            'comments': comments}
+
+    __insert(db, 'met.fp_implants', data, cur=cur)
+
+    db.close()
+
+
+def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=None, sess_date=None, comments=None):
+    '''Add fiber photometry recording session data to the fp_data table'''
+
+    db = __get_connector()
+    cur = db.cursor()
+
+    # get the appropriate implant
+    cur.execute('select id from met.fp_implants where subjid={} and region=\'{}\''.format(subj_id, region))
+    implant_id = cur.fetchone()
+
+    if implant_id is None:
+        raise Exception('No implants have been added for the given subject and region. Add an implant before adding data')
+    else:
+        implant_id = implant_id[0]
+
+    # get the appropriate session
+    if sess_id is not None and sess_date is not None:
+        raise ValueError('Either specify the session id or the session date, not both')
+    elif sess_id is None:
+        # find the session based on the date
+        if sess_date is None:
+            sess_date = date.today().isoformat()
+
+        cur.execute('select sessid from beh.sessions where subjid={} and sessiondate=\'{}\''.format(subj_id, sess_date))
+        sess_id = cur.fetchall()
+
+        if sess_id is None:
+            raise Exception('No sessions were found for subject {} on {}. Either correct the date or pass in the session id instead'.format(subj_id, sess_date))
+        elif len(sess_id) > 1:
+            raise Exception('{} sessions were found for subject {} on {}. Pass in the session id instead'.format(len(sess_id), subj_id, sess_date))
+        else:
+            sess_id = sess_id[0]
+    else:
+        # make sure the given session id exists for the given subject
+        cur.execute('select exists(select 1 from beh.sessions where subjid={} and sessid={})'.format(subj_id, sess_id))
+        exists = bool(cur.fetchone()[0])
+        if not exists:
+            raise Exception('Session {} was not found for subject {}'.format(sess_id, subj_id))
+
+    data = {'implant_id': implant_id,
+            'subjid': subj_id,
+            'sessid': sess_id,
+            'trial_start_timestamps': __to_json(trial_start_ts),
+            'time_data': __to_json(time_data),
+            'fp_data': __to_json(fp_data),
+            'comments': comments}
+
+    # make sure we aren't adding duplicate sessions to the database
+    cur.execute('select exists(select 1 from met.fp_data where implant_id={} and sessid={})'.format(implant_id, sess_id))
+    exists = bool(cur.fetchone()[0])
+    if exists:
+        print('FP data for session {} and implant {} was already added to the database. Will update instead'.format(sess_id, implant_id))
+        __update(db, 'met.fp_data', data, 'implant_id={} and sessid={}'.format(implant_id, sess_id), cur=cur)
+    else:
+        __insert(db, 'met.fp_data', data, cur=cur)
+
+    db.close()
+
+
+# %% PRIVATE METHODS
 
 
 def __get_connector():
@@ -438,4 +741,73 @@ def __get_connector():
 
 def __parse_json(x):
     '''Private method to convert json to values'''
-    return json.loads(x.decode('utf-8'))['vals']
+    tmp = json.loads(x.decode('utf-8'))
+    #
+    if 'vals' in tmp and 'info' in tmp:
+        return tmp['vals']
+    else:
+        return tmp
+
+
+def __to_json(x):
+    '''Private method to convert values to json'''
+    return json.dumps(x, cls=json_encoder).encode('utf-8')
+
+
+# Extend the JSON Encoder class to serialize objects that are not base python
+class json_encoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
+
+def __insert(db, tablename, data, cur=None, commit=True):
+    '''Add a row to the given table with the given data.
+       data is given as a dictionairy where the keys are the column names and the
+       values are the data entries for those columns.
+       Can optionally pass in a cursor and/or commit the insertion'''
+
+    cols = data.keys()
+    col_string = ', '.join(cols)
+    val_string = ['%({})s'.format(c) for c in cols]
+    val_string = ', '.join(val_string)
+    sql = 'insert into {} ({}) values ({})'.format(tablename, col_string, val_string)
+
+    if cur is None:
+        cur = db.cursor()
+
+    cur.execute(sql, data)
+
+    if commit:
+        db.commit()
+        cur.close()
+    else:
+        return cur
+
+
+def __update(db, tablename, data, where, cur=None, commit=True):
+    '''Updates a row in the given table with the given data.
+       data is given as a dictionairy where the keys are the column names and the
+       values are the data entries for those columns.
+       Can optionally pass in a cursor and/or commit the insertion'''
+
+    set_string = ['{0}=%({0})s'.format(c) for c in data.keys()]
+    set_string = ', '.join(set_string)
+
+    sql = 'update {} set {} where {}'.format(tablename, set_string, where)
+
+    if cur is None:
+        cur = db.cursor()
+
+    cur.execute(sql, data)
+
+    if commit:
+        db.commit()
+        cur.close()
+    else:
+        return cur
