@@ -13,12 +13,15 @@ import tkinter as tk
 from tkinter import filedialog
 
 
-def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, target_dt=0.005, new_format=True, print_file_struct=True, print_attr=False):
+def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, target_dt=0.005, new_format=True, print_file_struct=True, print_attr=False, initial_dir=None):
+
+    if initial_dir is None:
+        initial_dir = utils.get_user_home()
 
     win = tk.Tk()
     win.withdraw()
     win.wm_attributes('-topmost', 1)
-    load_path = filedialog.askopenfilename(initialdir = utils.get_user_home(),
+    load_path = filedialog.askopenfilename(initialdir = initial_dir,
                                           title = 'Select a Recording File',
                                           filetypes = [('Doric files', '*.doric')])
 
