@@ -13,17 +13,19 @@ import tkinter as tk
 from tkinter import filedialog
 
 
-def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, target_dt=0.005, new_format=True, print_file_struct=True, print_attr=False, initial_dir=None):
+def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_dict=None, data_path=None,
+                       target_dt=0.005, new_format=True, print_file_struct=True, print_attr=False, initial_dir=None):
 
-    if initial_dir is None:
-        initial_dir = utils.get_user_home()
+    if data_path is None:
+        if initial_dir is None:
+            initial_dir = utils.get_user_home()
 
-    win = tk.Tk()
-    win.withdraw()
-    win.wm_attributes('-topmost', 1)
-    load_path = filedialog.askopenfilename(initialdir = initial_dir,
-                                          title = 'Select a Recording File',
-                                          filetypes = [('Doric files', '*.doric')])
+        win = tk.Tk()
+        win.withdraw()
+        win.wm_attributes('-topmost', 1)
+        load_path = filedialog.askopenfilename(initialdir = initial_dir,
+                                              title = 'Select a Recording File',
+                                              filetypes = [('Doric files', '*.doric')])
 
     if print_file_struct:
         dor.h5print(load_path, print_attr=print_attr)
@@ -65,8 +67,11 @@ def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, target_dt
     # no need to persist the entire timestamp array, just the elements needed to recompute
     time_data = {'start': dec_time[0], 'end': dec_time[-1], 'dt': dec_info['decimated_dt'], 'length': len(dec_time), 'dec_info': dec_info}
 
+    if comments_dict is None:
+        comments_dict = {r: '' for r in region_dict.keys()}
+
     for region in region_dict.keys():
         # get all signals associated with each region
         region_keys = [k for k in dec_signals.keys() if region in k]
         fp_data = {k.replace(region+'_', ''): dec_signals[k] for k in region_keys}
-        db_access.add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=sess_id, comments=None)
+        db_access.add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=sess_id, comments=comments_dict[region])

@@ -15,6 +15,7 @@ import time
 import pyutils.utils as utils
 import math
 from datetime import date
+from dateutil import parser
 
 # %% Get Behavioral or Physiological Data
 
@@ -512,6 +513,32 @@ def get_subj_sess_ids(subj_ids, stage_num=None, stage_name=None, protocol=None, 
                 startstage={0} and protocol=\'{1}\' and subjid in ({2}) and sessiondate >= \'{3}\' and sessiondate <= \'{4}\'
                 and exists (select 1 from beh.trials as b where a.sessid=b.sessid)'''
                 .format(str(stage_num), protocol, ','.join([str(i) for i in subj_ids]), date_start, date_end))
+    ids = cur.fetchall()
+
+    cur.close()
+    db.close()
+
+    # group the session ids by subject
+    # Note: this is much faster than repeatedly querying the database
+    df = pd.DataFrame.from_dict(ids)
+    # group session ids into a sorted list by subject id
+    df = df.groupby('subjid').agg(list)['sessid'].apply(lambda x: sorted(x))
+
+    return df.to_dict()
+
+
+def get_subj_sess_ids_by_date(subj_ids, date_str):
+    '''Gets all session ids for the given subject ids, for the given date'''
+
+    date_str = parser.parse(date_str).isoformat()
+
+    db = __get_connector()
+    cur = db.cursor(buffered=True, dictionary=True)
+
+    # get session and subject ids but filter out sessions without trials
+    cur.execute('''select sessid, subjid from beh.sessions as a where
+                sessiondate=\'{}\' and exists (select 1 from beh.trials as b where a.sessid=b.sessid)'''
+                .format(date_str))
     ids = cur.fetchall()
 
     cur.close()
