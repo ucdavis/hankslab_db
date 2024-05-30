@@ -536,9 +536,9 @@ def get_subj_sess_ids_by_date(subj_ids, date_str):
     cur = db.cursor(buffered=True, dictionary=True)
 
     # get session and subject ids but filter out sessions without trials
-    cur.execute('''select sessid, subjid from beh.sessions as a where
+    cur.execute('''select sessid, subjid from beh.sessions as a where subjid in ({}) and
                 sessiondate=\'{}\' and exists (select 1 from beh.trials as b where a.sessid=b.sessid)'''
-                .format(date_str))
+                .format(','.join([str(i) for i in subj_ids]), date_str))
     ids = cur.fetchall()
 
     cur.close()

@@ -23,14 +23,14 @@ def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_
         win = tk.Tk()
         win.withdraw()
         win.wm_attributes('-topmost', 1)
-        load_path = filedialog.askopenfilename(initialdir = initial_dir,
+        data_path = filedialog.askopenfilename(initialdir = initial_dir,
                                               title = 'Select a Recording File',
                                               filetypes = [('Doric files', '*.doric')])
 
     if print_file_struct:
-        dor.h5print(load_path, print_attr=print_attr)
+        dor.h5print(data_path, print_attr=print_attr)
 
-    data_path = '/DataAcquisition/FPConsole/Signals/Series0001/'
+    dor_signal_path = '/DataAcquisition/FPConsole/Signals/Series0001/'
     ttl_name = 'ttl'
 
     signal_name_dict = {ttl_name: {'time': 'DigitalIO/Time', 'values': 'DigitalIO/DIO01'}}
@@ -46,7 +46,7 @@ def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_
                                  for r in region_dict.keys() for w in wavelength_dict.keys()})
 
 
-    data = dor.get_specific_data(load_path, data_path, signal_name_dict)
+    data = dor.get_specific_data(data_path, dor_signal_path, signal_name_dict)
 
     data, issues = dor.fill_missing_data(data, 'time')
     if len(issues) > 0:
