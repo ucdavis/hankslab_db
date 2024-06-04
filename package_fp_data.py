@@ -16,6 +16,8 @@ from tkinter import filedialog
 def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_dict=None, data_path=None,
                        target_dt=0.005, new_format=True, print_file_struct=True, print_attr=False, initial_dir=None):
 
+    print('Packaging data for subject {}...'.format(subj_id))
+    
     if data_path is None:
         if initial_dir is None:
             initial_dir = utils.get_user_home()

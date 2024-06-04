@@ -648,6 +648,8 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
 
     db = __get_connector()
     cur = db.cursor()
+    
+    start = time.perf_counter()
 
     # get the appropriate implant
     cur.execute('select id from met.fp_implants where subjid={} and region=\'{}\''.format(subj_id, region))
@@ -698,6 +700,8 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
         __update(db, 'met.fp_data', data, 'implant_id={} and sessid={}'.format(implant_id, sess_id), cur=cur)
     else:
         __insert(db, 'met.fp_data', data, cur=cur)
+        
+    print('Added FP data for subject {} in region {} to the database in {:.1f} s'.format(subj_id, region, time.perf_counter()-start))
 
     db.close()
 
