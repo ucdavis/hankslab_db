@@ -11,6 +11,7 @@ from sys_neuro_tools import acq_utils as acq
 from hankslab_db import db_access
 import tkinter as tk
 from tkinter import filedialog
+import numpy as np
 
 
 def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_dict=None, data_path=None,
@@ -62,6 +63,12 @@ def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_
     if any(trial_num_diffs > 1):
         print('Session is missing trials, will attempt to fill them in from behavior data')
         # TODO - fill in missing trial numbers and times
+        
+    # check if there are any repeated numbers due to some error in a trial
+    if any(trial_num_diffs == 0):
+        # take the timestamp for the last value
+        sel = np.append(trial_num_diffs != 0, True)
+        trial_start_ts = trial_start_ts[sel]
 
     signal_data = {k:v for k,v in data.items() if k != ttl_name}
     dec_time, dec_signals, dec_info = acq.decimate_data(signal_data, target_dt = target_dt)
