@@ -359,15 +359,17 @@ class LocalDB_Base(ABC):
                 time_data = sess_fp_data.iloc[0]['time_data']
                 fp_data_dict[subj_id][sess_id]['time'] = time_data['start'] + np.arange(time_data['length'])*time_data['dt']
                 fp_data_dict[subj_id][sess_id]['dec_info'] = time_data['dec_info']
-                fp_data_dict[subj_id][sess_id]['comments'] = sess_fp_data.iloc[0]['comments']
 
                 # get signals by region
-                regions = sess_fp_data['region'].unique()
+                regions = np.unique(sess_fp_data['region'])
                 signals = {}
+                comments = {}
                 for region in regions:
                     signals[region] = sess_fp_data[sess_fp_data['region'] == region]['fp_data'].iat[0]
+                    comments[region] = sess_fp_data[sess_fp_data['region'] == region]['comments']
 
                 fp_data_dict[subj_id][sess_id]['raw_signals'] = signals
+                fp_data_dict[subj_id][sess_id]['comments'] = comments
 
         return {'implant_info': implant_info, 'fp_data': fp_data_dict}
 
