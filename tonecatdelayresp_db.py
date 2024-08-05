@@ -73,6 +73,8 @@ class LocalDB_ToneCatDelayResp(base_db.LocalDB_Base):
         sess_data['prev_choice_correct_port'] = sess_data['prev_choice_correct_port'].ffill()
         sess_data['prev_choice_side'] = sess_data['prev_choice_side'].ffill()
 
+        sess_data['incongruent'] = sess_data['tone_info'].apply(lambda x: x[0] != x[-1] if utils.is_list(x) and len(x) == 2 else False)
+
         return sess_data
 
     def __get_bail_response_info(self, row):

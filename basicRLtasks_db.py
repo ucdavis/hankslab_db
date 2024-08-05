@@ -32,14 +32,25 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
 
         match self.task_name:
             case 'pavlovCond':
-                sess_data['rewarded'] = sess_data['reward'] > 0
                 # simplify some column names
                 sess_data.rename(columns={'tone_start': 'rel_tone_start_time'}, inplace=True)
                 sess_data['abs_tone_start_time'] = sess_data['rel_tone_start_time'] + sess_data['stim_start_time']
+
+                # add in missing column from earlier versions of protocol
+                if 'rewarded' in sess_data.columns:
+                    sess_data.rename(columns={'rewarded': 'reward_tone'}, inplace=True)
+
+                if not 'aversive_outcome' in sess_data.columns:
+                    sess_data['aversive_outcome'] = False
+
+
             case 'twoArmBandit':
                 # add in missing center port on time
                 if 'cport_on_time' not in sess_data:
                     sess_data['cport_on_time'] = sess_data['parsed_events'].apply(lambda x: x['States']['WaitForCenterPoke'][0])
+                if 'cpoke_out_time' not in sess_data:
+                    sess_data['cpoke_out_time'] = np.nan
+
                 # add columns for ease of analysis
                 # make sure empty cpoke in/out columns are nans
                 sess_data['cpoke_in_time'] = sess_data['cpoke_in_time'].apply(lambda x: x if utils.is_scalar(x) else np.nan)
