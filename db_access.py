@@ -208,6 +208,11 @@ def get_fp_data(fp_ids):
 
     # convert to data table
     fp_data = pd.DataFrame.from_dict(db_data)
+    
+    # format implant information
+    fp_data.rename(columns={'id': 'fpid'}, inplace=True)
+    fp_data[['AP', 'ML', 'DV']] = fp_data[['AP', 'ML', 'DV']].astype(float)
+    fp_data['side'] = fp_data['ML'].apply(lambda x: 'left' if x > 0 else 'right')
 
     cur.close()
     db.close()
@@ -338,31 +343,45 @@ def get_unit_sess_ids(unit_ids):
     return df.to_dict()
 
 
-def get_fp_protocol_subj_sess_ids(protocol, stage_num, subj_ids=None):
-    '''Gets all session ids for the given protocol/stage with fp data, optionally filtering on subjects
+def get_fp_data_sess_ids(protocol=None, stage_num=None, subj_ids=None):
+    '''Gets all session ids with fp data optionally filtering on protocol, stage number, and subject ids,
     Returns a dictionary of session ids indexed by subject id'''
 
     db = __get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
+    # first get session ids with fp data
     if subj_ids is None:
-        cur.execute('select distinct a.subjid, a.sessid from beh.sessions a, met.fp_data b where a.protocol=\'{}\' and a.startstage={} and a.sessid=b.sessid'
-                .format(protocol, stage_num))
+        cur.execute('select distinct subjid, sessid from met.fp_data')
     else:
         if utils.is_scalar(subj_ids):
             subj_ids = [subj_ids]
 
-        cur.execute('select distinct a.subjid, a.sessid from beh.sessions a, met.fp_data b where a.protocol=\'{}\' and a.startstage={} and a.subjid in ({}) and a.sessid=b.sessid'
-                .format(protocol, stage_num, ','.join([str(i) for i in subj_ids])))
+        cur.execute('select distinct subjid, sessid from met.fp_data where subjid in ({})'
+                .format(','.join([str(i) for i in subj_ids])))
 
     ids = cur.fetchall()
 
     cur.close()
     db.close()
 
-    # group the fp ids by session
-    # Note: this is much faster than repeatedly querying the database
-    df = pd.DataFrame.from_dict(ids)
+    if not protocol is None or not stage_num is None:
+        sess_ids = [v['sessid'] for v in ids]
+        sess_details = get_sess_protocol_stage(sess_ids)
+
+        if not protocol is None:
+            sess_details = sess_details[sess_details['protocol'] == protocol]
+
+        if not stage_num is None:
+            sess_details = sess_details[sess_details['startstage'] == stage_num]
+
+        df = sess_details[['subjid', 'sessid']]
+
+    else:
+        # group the fp ids by session
+        # Note: this is much faster than repeatedly querying the database
+        df = pd.DataFrame.from_dict(ids)
+
     # group unit ids into a sorted list by session id
     df = df.groupby('subjid').agg(list)['sessid'].apply(lambda x: sorted(x))
 
@@ -379,7 +398,7 @@ def get_sess_fp_ids(sess_ids):
     db = __get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
-    cur.execute('select id, sessid from met.fp_data where sessid in ({0})'
+    cur.execute('select id, sessid from met.fp_data where sessid in ({0}) and subjid in (select distinct subjid from beh.sessions where sessid in ({0}))'
                 .format(','.join([str(i) for i in sess_ids])))
     ids = cur.fetchall()
 
@@ -437,7 +456,7 @@ def get_fp_implant_info(subj_ids=None):
         subj_ids = [subj_ids]
 
     cur = db.cursor(buffered=True, dictionary=True)
-    cur.execute('select subjid, region from met.fp_implants where subjid in ({0})'
+    cur.execute('select * from met.fp_implants where subjid in ({0})'
                 .format(','.join([str(i) for i in subj_ids])))
     info = cur.fetchall()
 
@@ -447,10 +466,14 @@ def get_fp_implant_info(subj_ids=None):
     # group the fp info by subject id
     # Note: this is much faster than repeatedly querying the database
     df = pd.DataFrame.from_dict(info)
-    # group fp info into a sorted list by subject id
-    df = df.groupby('subjid').agg(list)['region'].apply(lambda x: sorted(x))
+    # format information and add a side column
+    df[['AP', 'ML', 'DV']] = df[['AP', 'ML', 'DV']].astype(float)
+    df['side'] = df['ML'].apply(lambda x: 'left' if x > 0 else 'right')
+    # group fp info into a nested dictionary keyed by subject id and region
+    subj_ids = np.unique(df['subjid'])
 
-    return df.to_dict()
+    return {subjid: df[df['subjid'] == subjid].drop_duplicates().set_index('region').to_dict('index')
+                    for subjid in subj_ids}
 
 
 def get_subj_sess_ids(subj_ids, stage_num=None, stage_name=None, protocol=None, date_start=None, date_end=None):
@@ -599,6 +622,26 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_na
     return df
 
 
+def get_sess_protocol_stage(sess_ids):
+    ''' Get the protocol name and stage number for all the given session ids'''
+
+    db = __get_connector()
+    cur = db.cursor(buffered=True, dictionary=True)
+
+    # get session and subject ids but filter out sessions without trials
+    cur.execute('''select sessid, subjid, protocol, startstage from beh.sessions as a where sessid in ({})
+                and exists (select 1 from beh.trials as b where a.sessid=b.sessid)'''
+                .format(','.join([str(i) for i in sess_ids])))
+    data = cur.fetchall()
+
+    cur.close()
+    db.close()
+
+    df = pd.DataFrame.from_dict(data)
+
+    return df
+
+
 # %% Add/Modify Data
 
 def add_procedure(subj_id, description, implant_type, brain_regions):
@@ -648,7 +691,7 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
 
     db = __get_connector()
     cur = db.cursor()
-    
+
     start = time.perf_counter()
 
     # get the appropriate implant
@@ -700,7 +743,7 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
         __update(db, 'met.fp_data', data, 'implant_id={} and sessid={}'.format(implant_id, sess_id), cur=cur)
     else:
         __insert(db, 'met.fp_data', data, cur=cur)
-        
+
     print('Added FP data for subject {} in region {} to the database in {:.1f} s'.format(subj_id, region, time.perf_counter()-start))
 
     db.close()

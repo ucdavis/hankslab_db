@@ -74,6 +74,21 @@ class LocalDB_ToneCatDelayResp(base_db.LocalDB_Base):
         sess_data['prev_choice_side'] = sess_data['prev_choice_side'].ffill()
 
         sess_data['incongruent'] = sess_data['tone_info'].apply(lambda x: x[0] != x[-1] if utils.is_list(x) and len(x) == 2 else False)
+        
+        # fix bugs/account for protocol variability
+        # some response times were None
+        sess_data['response_time'] = sess_data['response_time'].apply(lambda x: x if not x is None else np.nan)
+        sess_data['RT'] = sess_data['RT'].apply(lambda x: x if not x is None else np.nan)
+        
+        if not 'reward_time' in sess_data.columns:
+            if sess_data['sessid'].iloc[0] < 95035:
+                sess_data['reward_time'] = sess_data['response_time']
+            else:
+                sess_data['reward_time'] = sess_data['response_time'] + 0.5
+                
+        # fill in reward times for unrewarded trials, has been fixed in newer version of protocol
+        reward_delay = np.nanmean(sess_data['reward_time'] - sess_data['response_time'])
+        sess_data.loc[sess_data['reward'] == 0, 'reward_time'] = sess_data.loc[sess_data['reward'] == 0, 'response_time'] + reward_delay
 
         return sess_data
 

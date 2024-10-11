@@ -11,8 +11,13 @@ from pyutils import utils
 
 class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
 
-    def __init__(self, task_name, save_locally=True, data_dir=None):
-        self.__task_name = task_name
+    def __init__(self, task_name=None, stage_num=None, save_locally=True, data_dir=None):
+        if task_name is None:
+            if not stage_num is None:
+                self.__task_name = self.get_task_name(stage_num)
+        else:
+            self.__task_name = task_name
+
         super().__init__(save_locally, data_dir)
 
     @property
@@ -24,11 +29,28 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
     def task_name(self):
         return self.__task_name
 
+    def get_task_name(self, stage_num):
+        match stage_num:
+            case 1:
+                return 'pavlovCond'
+            case 2:
+                return 'twoArmBandit'
+            case 3:
+                return 'temporalChoice'
+            case 4:
+                return 'foraging'
+
     def _format_sess_data(self, sess_data):
         ''' Format the session data based on the protocol '''
 
         sess_data['chose_left'] = sess_data['choice'] == 'left'
         sess_data['chose_right'] = sess_data['choice'] == 'right'
+        
+        if not 'reward_time' in sess_data.columns:
+            if sess_data['sessid'].iloc[0] < 95035:
+                sess_data['reward_time'] = sess_data['response_time']
+            else:
+                sess_data['reward_time'] = sess_data['response_time'] + 0.5
 
         match self.task_name:
             case 'pavlovCond':
@@ -148,6 +170,6 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
                 prev_resp = np.insert(sess_data['hit'][:-1], 0, False)
                 prev_rew = np.insert(sess_data['reward'][:-1].astype('float'), 0, np.nan)
                 sess_data.loc[prev_resp, 'prev_reward'] = prev_rew[prev_resp]
-                sess_data.ffill(inplace=True)
+                sess_data['prev_reward'].ffill(inplace=True)
 
         return sess_data

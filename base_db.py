@@ -14,6 +14,7 @@ import pickle
 import db_access
 import pyutils.utils as utils
 from collections import Counter
+import time
 
 
 # make this class abstract so other local database classed can inherit and implement their unique
@@ -346,7 +347,8 @@ class LocalDB_Base(ABC):
         subj_sess_ids = fp_data.groupby('subjid')['sessid'].agg(list).apply(np.unique).to_dict()
 
         # get the implant information for each subject and region
-        implant_info = {subjid: fp_data[fp_data['subjid'] == subjid][['region', 'side', 'AP', 'ML', 'DV', 'fiber_type']].drop_duplicates().set_index('region').to_dict('index') for subjid in subj_sess_ids.keys()}
+        implant_info = {subjid: fp_data[fp_data['subjid'] == subjid][['region', 'side', 'AP', 'ML', 'DV', 'fiber_type']].drop_duplicates().set_index('region').to_dict('index')
+                        for subjid in subj_sess_ids.keys()}
 
         # get the fiber photometry data organized by subject and session
         fp_data_dict = {subj_id: {sess_id: {} for sess_id in sess_ids} for subj_id, sess_ids in subj_sess_ids.items()}
@@ -387,6 +389,9 @@ class LocalDB_Base(ABC):
         A pandas table of fp data
         '''
 
+        # if all([sess_id in self.local_fp_data['sessid'].values for sess_id in sess_ids]):
+        #     fp_ids = self.local_fp_data[self.local_fp_data['sessid'].isin(sess_ids)]['fpid']
+        # else:
         fp_ids = db_access.get_sess_fp_ids(sess_ids)
         return self.get_fp_data(utils.flatten(fp_ids), reload)
 
@@ -422,9 +427,6 @@ class LocalDB_Base(ABC):
         return unit_data
 
     def _format_fp_data(self, fp_data):
-        fp_data.rename(columns={'id': 'fpid'}, inplace=True)
-        fp_data[['AP', 'ML', 'DV']] = fp_data[['AP', 'ML', 'DV']].astype(float)
-        fp_data['side'] = fp_data['ML'].apply(lambda x: 'left' if x > 0 else 'right')
         return fp_data
 
     ## Private Infrastructure Methods ##
