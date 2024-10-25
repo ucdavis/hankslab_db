@@ -219,7 +219,7 @@ def get_fp_data(fp_ids):
 
     print('Retrieved {0} fp recordings in {1:.1f} s'.format(len(fp_ids), time.perf_counter()-start))
 
-    return fp_data.sort_values('id', ignore_index=True).infer_objects()
+    return fp_data.sort_values('fpid', ignore_index=True).infer_objects()
 
 
 # %% Get IDs
