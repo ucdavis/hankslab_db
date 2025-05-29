@@ -7,6 +7,7 @@ local database for basic RL tasks protocol
 
 import base_db
 import numpy as np
+import pandas as pd
 from pyutils import utils
 
 class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
@@ -85,6 +86,12 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
                 probs = sess_data[['p_reward_left', 'p_reward_right']]
                 sess_data['side_prob'] = probs.iloc[:,0].apply(lambda x: '{:.0f}'.format(x*100)) + '/' + probs.iloc[:,1].apply(lambda x: '{:.0f}'.format(x*100))
                 sess_data['block_prob'] = np.max(probs, axis=1).apply(lambda x: '{:.0f}'.format(x*100)) + '/' + np.min(probs, axis=1).apply(lambda x: '{:.0f}'.format(x*100))
+                
+                # update block prob label for varying volatility epochs
+                if 'epoch_schedule' in sess_data.columns:
+                    vol_sel = sess_data['epoch_schedule'] == 'switch_vol'
+                    sess_data.loc[vol_sel, 'block_prob'] = sess_data.loc[vol_sel, 'block_prob'] + '-' + sess_data.loc[vol_sel, 'epoch_label'] 
+                
                 sess_data['high_side'] = (probs.iloc[:,0] > probs.iloc[:,1]).apply(lambda x: 'left' if x else 'right')
                 sess_data['chose_high'] = sess_data['choice'] == sess_data['high_side']
                 sess_data['choice_prob'] = sess_data.apply(
@@ -104,6 +111,69 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
                 chose_right_sel = np.insert(sess_data['chose_right'][1:], 0, False)
                 sess_data.loc[chose_left_sel,'choice_prev_prob'] = prev_p_left[chose_left_resp]
                 sess_data.loc[chose_right_sel,'choice_prev_prob'] = prev_p_right[~chose_left_resp]
+                
+            case 'rewVolBandit':
+
+                # add columns for ease of analysis
+                # make sure empty cpoke in/out columns are nans
+                sess_data['cpoke_in_time'] = sess_data['cpoke_in_time'].apply(lambda x: x if utils.is_scalar(x) else np.nan)
+                sess_data['cpoke_out_time'] = sess_data['cpoke_out_time'].apply(lambda x: x if utils.is_scalar(x) else np.nan)
+                sess_data['cpoke_in_latency'] = sess_data['cpoke_in_time'] - sess_data['cport_on_time']
+                sess_data['next_cpoke_in_latency'] = np.append(sess_data['cpoke_in_latency'][1:].to_numpy(), np.nan)
+                sess_data['cpoke_out_latency'] = sess_data['cpoke_out_time'] - sess_data['response_cue_time']
+
+                means = sess_data[['mean_reward_left', 'mean_reward_right']]
+                sess_data['side_means'] = means.iloc[:,0].apply(lambda x: '{:.0f}'.format(x)) + '/' + means.iloc[:,1].apply(lambda x: '{:.0f}'.format(x))
+                sess_data['block_means'] = np.max(means, axis=1).apply(lambda x: '{:.0f}'.format(x)) + '/' + np.min(means, axis=1).apply(lambda x: '{:.0f}'.format(x))
+                
+                # epoch labels
+                simplify_epoch_label = lambda x: x.replace('low', 'L').replace('high', 'H')
+                sess_data['epoch_label'] = sess_data['var_type'].apply(simplify_epoch_label) + '/' + sess_data['vol_type'].apply(simplify_epoch_label)
+                sess_data['epoch_block_label'] = sess_data['epoch_label'] + '-' + sess_data['block_means']
+                sess_data['epoch_side_label'] = sess_data['epoch_label'] + '-' + sess_data['side_means']
+                
+                sess_data['high_side'] = (means.iloc[:,0] > means.iloc[:,1]).apply(lambda x: 'left' if x else 'right')
+                sess_data['chose_high'] = sess_data['choice'] == sess_data['high_side']
+                sess_data['choice_mean'] = sess_data.apply(
+                    lambda x: x['mean_reward_left'] if x['chose_left'] else x['mean_reward_right'] if x['chose_right'] else np.nan, axis=1)
+
+                # populate previous and next trial information
+                # this only works if we format one session at a time
+                sess_data['prev_high_side'] = pd.NA
+                sess_data.iloc[1:, sess_data.columns.get_loc('prev_high_side')] = sess_data['high_side'].iloc[:-1]
+                
+                sess_data['next_choice'] = pd.NA
+                sess_data.iloc[:-1, sess_data.columns.get_loc('next_choice')] = sess_data['choice'].iloc[1:]
+                
+                sess_data['chose_prev_high'] = pd.NA
+                sess_data['prev_switch'] = pd.NA
+                sess_data['next_switch'] = pd.NA
+                resp_sel = sess_data['hit'] == True
+                sess_data_resp = sess_data[resp_sel]
+                
+                prev_resp_sel = resp_sel.to_numpy().copy()
+                prev_resp_sel[resp_sel.idxmax()] = False
+                next_resp_sel = resp_sel.to_numpy().copy()
+                next_resp_sel[resp_sel[::-1].idxmax()] = False
+                
+                choices = sess_data_resp['choice'].to_numpy()
+                sess_data.loc[prev_resp_sel, 'chose_prev_high'] = choices[1:] == sess_data_resp['high_side'][:-1].to_numpy()
+                switch = choices[1:] != choices[:-1]
+                sess_data.loc[prev_resp_sel, 'prev_switch'] = switch
+                sess_data.loc[next_resp_sel, 'next_switch'] = switch
+                
+                # # get previous reward probability of current choice, excluding no responses
+                # sess_data['choice_prev_prob'] = np.nan
+                # resp_sel = sess_data['hit'] == True
+                # sess_data_resp = sess_data[resp_sel]
+                # prev_p_right = sess_data_resp['p_reward_right'][:-1].to_numpy()
+                # prev_p_left = sess_data_resp['p_reward_left'][:-1].to_numpy()
+                # chose_left_resp = sess_data_resp['chose_left'][1:]
+                # chose_left_sel = np.insert(sess_data['chose_left'][1:], 0, False)
+                # chose_right_sel = np.insert(sess_data['chose_right'][1:], 0, False)
+                # sess_data.loc[chose_left_sel,'choice_prev_prob'] = prev_p_left[chose_left_resp]
+                # sess_data.loc[chose_right_sel,'choice_prev_prob'] = prev_p_right[~chose_left_resp]
+                
             case 'temporalChoice':
                 # make sure empty cpoke in columns are nans
                 sess_data['cpoke_in_time'] = sess_data['cpoke_in_time'].apply(lambda x: x if utils.is_scalar(x) else np.nan)
