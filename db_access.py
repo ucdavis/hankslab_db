@@ -30,7 +30,7 @@ def get_session_data(session_ids):
 
     start = time.perf_counter()
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(dictionary=True, buffered=True)
 
     id_str = ','.join([str(i) for i in session_ids])
@@ -56,9 +56,9 @@ def get_session_data(session_ids):
 
         for trial in trials:
             # read out data stored in json
-            trial['parsed_events'] = __parse_json(trial['parsed_events'])
+            trial['parsed_events'] = _parse_json(trial['parsed_events'])
             # remove data into its own dictionary
-            trial_data = __parse_json(trial.pop('data'))
+            trial_data = _parse_json(trial.pop('data'))
             trial_data.pop('n_done_trials')  # this is redundant
 
             # preload keys and values so we can edit the dictionary in the for loop
@@ -103,7 +103,7 @@ def get_unit_data(unit_ids):
     print('Retrieving {0} units...'.format(len(unit_ids)))
     start = time.perf_counter()
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(dictionary=True, buffered=True)
 
     query = 'select * from met.units where unitid in ({0})'
@@ -138,9 +138,9 @@ def get_unit_data(unit_ids):
 
     # read out data stored in json
     for i, row in enumerate(db_data):
-        db_data[i]['spike_timestamps'] = np.array(__parse_json(row['spike_timestamps']))
-        db_data[i]['trial_start_timestamps'] = np.array(__parse_json(row['trial_start_timestamps']))
-        db_data[i]['waveform'] = __parse_json(row['waveform'])
+        db_data[i]['spike_timestamps'] = np.array(_parse_json(row['spike_timestamps']))
+        db_data[i]['trial_start_timestamps'] = np.array(_parse_json(row['trial_start_timestamps']))
+        db_data[i]['waveform'] = _parse_json(row['waveform'])
 
     # convert to data table
     unit_data = pd.DataFrame.from_dict(db_data)
@@ -162,7 +162,7 @@ def get_fp_data(fp_ids):
     print('Retrieving {0} fp recordings...'.format(len(fp_ids)))
     start = time.perf_counter()
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(dictionary=True, buffered=True)
 
     query = '''select a.id, a.subjid, a.sessid, a.trial_start_timestamps, a.time_data, a.fp_data, a.comments,
@@ -199,9 +199,9 @@ def get_fp_data(fp_ids):
 
     # read out data stored in json
     for i, row in enumerate(db_data):
-        db_data[i]['trial_start_timestamps'] = np.array(__parse_json(row['trial_start_timestamps']))
-        db_data[i]['time_data'] = __parse_json(row['time_data'])
-        db_data[i]['fp_data'] = __parse_json(row['fp_data'])
+        db_data[i]['trial_start_timestamps'] = np.array(_parse_json(row['trial_start_timestamps']))
+        db_data[i]['time_data'] = _parse_json(row['time_data'])
+        db_data[i]['fp_data'] = _parse_json(row['fp_data'])
 
         for key, signal in db_data[i]['fp_data'].items():
             db_data[i]['fp_data'][key] = np.array(signal)
@@ -226,7 +226,7 @@ def get_fp_data(fp_ids):
 
 def get_unit_protocol_subj_ids(protocol):
     ''' Gets all subject ids with unit information for a particular protocol '''
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True)
 
     cur.execute('select distinct a.subjid from beh.sessions a, met.units b where a.protocol=\'{0}\' and a.sessid=b.sessid'
@@ -246,7 +246,7 @@ def get_subj_unit_ids(subj_ids):
     if utils.is_scalar(subj_ids):
         subj_ids = [subj_ids]
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     cur.execute('select subjid, unitid from met.units where subjid in ({0})'
@@ -272,7 +272,7 @@ def get_sess_unit_ids(sess_ids):
     if utils.is_scalar(sess_ids):
         sess_ids = [sess_ids]
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     cur.execute('select sessid, unitid from met.units where sessid in ({0})'
@@ -298,7 +298,7 @@ def get_subj_unit_sess_ids(subj_ids):
     if utils.is_scalar(subj_ids):
         subj_ids = [subj_ids]
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     cur.execute('select distinct sessid, subjid from met.units where subjid in ({0})'
@@ -324,7 +324,7 @@ def get_unit_sess_ids(unit_ids):
     if utils.is_scalar(unit_ids):
         unit_ids = [unit_ids]
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     cur.execute('select sessid, unitid from met.units where unitid in ({0})'
@@ -347,7 +347,7 @@ def get_fp_data_sess_ids(protocol=None, stage_num=None, subj_ids=None):
     '''Gets all session ids with fp data optionally filtering on protocol, stage number, and subject ids,
     Returns a dictionary of session ids indexed by subject id'''
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     # first get session ids with fp data
@@ -395,7 +395,7 @@ def get_sess_fp_ids(sess_ids):
     if utils.is_scalar(sess_ids):
         sess_ids = [sess_ids]
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     cur.execute('select id, sessid from met.fp_data where sessid in ({0}) and subjid in (select distinct subjid from beh.sessions where sessid in ({0}))'
@@ -421,7 +421,7 @@ def get_fp_sess_ids(fp_ids):
     if utils.is_scalar(fp_ids):
         fp_ids = [fp_ids]
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     cur.execute('select id, sessid from met.fp_data where id in ({0})'
@@ -444,7 +444,7 @@ def get_fp_implant_info(subj_ids=None):
     '''Get fiber photometry implant information, optionally limited to the given subject ids.
     Returns a dictionary of implant information keyed by subject id'''
 
-    db = __get_connector()
+    db = _get_connector()
 
 
     if subj_ids is None:
@@ -487,7 +487,7 @@ def get_subj_sess_ids(subj_ids, stage_num=None, stage_name=None, protocol=None, 
     if utils.is_scalar(subj_ids):
         subj_ids = [subj_ids]
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     # get the current protocol for subjects, if not provided
@@ -555,7 +555,7 @@ def get_subj_sess_ids_by_date(subj_ids, date_str):
 
     date_str = parser.parse(date_str).isoformat()
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     # get session and subject ids but filter out sessions without trials
@@ -583,7 +583,7 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_na
     if stage_name is not None and stage_num is not None:
         raise ValueError('Can only provide one form of stage identifier')
 
-    db = __get_connector()
+    db = _get_connector()
 
     # first get all active subjects
     cur = db.cursor(buffered=True)
@@ -625,7 +625,7 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_na
 def get_sess_protocol_stage(sess_ids):
     ''' Get the protocol name and stage number for all the given session ids'''
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor(buffered=True, dictionary=True)
 
     # get session and subject ids but filter out sessions without trials
@@ -647,7 +647,7 @@ def get_sess_protocol_stage(sess_ids):
 def add_procedure(subj_id, description, implant_type, brain_regions):
     '''Add a procedure to the procedures table'''
 
-    db = __get_connector()
+    db = _get_connector()
     data = {'subjid': subj_id,
             'description': description,
             'implant_type': implant_type,
@@ -661,7 +661,7 @@ def add_procedure(subj_id, description, implant_type, brain_regions):
 def add_fp_implant(subj_id, region, fiber_type, AP, ML, DV, comments=None):
     '''Add a fiber photometry implant to the fp_implants table'''
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor()
 
     cur.execute('select id from met.procedures where subjid={0}'.format(subj_id))
@@ -689,7 +689,7 @@ def add_fp_implant(subj_id, region, fiber_type, AP, ML, DV, comments=None):
 def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=None, sess_date=None, comments=None):
     '''Add fiber photometry recording session data to the fp_data table'''
 
-    db = __get_connector()
+    db = _get_connector()
     cur = db.cursor()
 
     start = time.perf_counter()
@@ -730,9 +730,9 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
     data = {'implant_id': implant_id,
             'subjid': subj_id,
             'sessid': sess_id,
-            'trial_start_timestamps': __to_json(trial_start_ts),
-            'time_data': __to_json(time_data),
-            'fp_data': __to_json(fp_data),
+            'trial_start_timestamps': _to_json(trial_start_ts),
+            'time_data': _to_json(time_data),
+            'fp_data': _to_json(fp_data),
             'comments': comments}
 
     # make sure we aren't adding duplicate sessions to the database
@@ -752,7 +752,7 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
 # %% PRIVATE METHODS
 
 
-def __get_connector():
+def _get_connector():
     '''Private method to get the database connection'''
 
     config_path = path.join(path.expanduser('~'), '.dbconf')
@@ -813,7 +813,7 @@ def __get_connector():
     return con
 
 
-def __parse_json(x):
+def _parse_json(x):
     '''Private method to convert json to values'''
     tmp = json.loads(x.decode('utf-8'))
     #
@@ -823,7 +823,7 @@ def __parse_json(x):
         return tmp
 
 
-def __to_json(x):
+def _to_json(x):
     '''Private method to convert values to json'''
     return json.dumps(x, cls=json_encoder).encode('utf-8')
 
