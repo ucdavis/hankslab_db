@@ -19,6 +19,7 @@ import db_access
 from contextlib import contextmanager
 import traceback
 from datetime import datetime, date
+import time
 
 # %% Helper Methods
 
@@ -424,27 +425,42 @@ class BehaviorTracker(QMainWindow):
             db = db_access._get_connector()
             cur = db.cursor(dictionary=True, buffered=True)
             
-            all_subjs = []
+            subj_str = ','.join(self.selected_subjs)
 
-            query_base = ('select a.subjid, a.sessid, a.sessiondate, a.protocol, a.stage, a.num_trials, a.total_profit, '+
-                     'a.hits, a.viols, a.rigid, b.settingsname, c.mass, d.datearrived, e.session_data from beh.sessview a '+
+            data_query = ('select a.subjid, a.sessid, a.sessiondate, a.protocol, a.stage, a.num_trials, a.total_profit, '+
+                     'a.hits, a.viols, a.rigid, b.settingsname, d.datearrived, e.session_data '+
+                     'from beh.sessview a '+
                      'join beh.sessions s on a.sessid = s.sessid '+
                      'join met.settings b on s.expgroupid = b.expgroupid and s.startstage = b.stage '+
-                     'join met.mass c on a.subjid = c.subjid and date(a.sessiondate) = date(c.mdate) '+
                      'join met.animals d on a.subjid = d.subjid '+
                      'join beh.sess_ended_data e on a.sessid = e.sessid '
-                     'where a.subjid = {}')
+                     'where a.subjid in ({})').format(subj_str)
             
-            for subjid in self.selected_subjs:
-                cur.execute(query_base.format(subjid))
-                vals = cur.fetchall()
-                all_subjs.extend(vals)
+            mass_query = 'select subjid, mass, mdate from met.mass where subjid in ({})'.format(subj_str)
+            
+            #start = time.perf_counter()
+            cur.execute(data_query)
+            data_df = pd.DataFrame(cur.fetchall())
+            #print('Retrieved behavioral data for subjects {} in {:.2f} s'.format(subj_str, time.perf_counter()-start))
+            
+            #start = time.perf_counter()
+            cur.execute(mass_query)
+            mass_df = pd.DataFrame(cur.fetchall())
+            #print('Retrieved mass data for subjects {} in {:.2f} s'.format(subj_str, time.perf_counter()-start))
+            
+            # convert to dates for matching
+            #start = time.perf_counter()
+            data_df['sessiondate'] = pd.to_datetime(data_df['sessiondate']).dt.date
+            mass_df['mdate'] = pd.to_datetime(mass_df['mdate']).dt.date
+            
+            merged_df = pd.merge(data_df, mass_df, how='left', left_on=['subjid', 'sessiondate'], right_on=['subjid', 'mdate']).drop(columns=['mdate'])
+            #print('Merged tables in {:.2f} s'.format(time.perf_counter()-start))
 
             cur.close()
             db.close()
     
             # convert to dataframe
-            self.sess_data = pd.DataFrame.from_dict(all_subjs).sort_values(by='sessid', ascending=False).reset_index(drop=True)
+            self.sess_data = merged_df.sort_values(by='sessid', ascending=False).reset_index(drop=True)
             # add stage name to number
             self.sess_data['stage'] = self.sess_data['stage'].apply(lambda x: int(x) if x == int(x) else x).astype(str) + '-' + self.sess_data['settingsname']
             # parse session data to json
