@@ -376,16 +376,16 @@ class BehaviorTracker(QMainWindow):
 
             match self.selected_filter:
                 case 'Protocol':
-                    query = ('select distinct a.subjid, a.status from met.animals a join beh.sessions s '+
-                             'on a.subjid = s.subjid where s.protocol = \'{}\' and a.subjid != 0'.format(self.selected_category))
+                    query = ('select distinct a.subjid, a.status, max(s.sessiondate) from met.animals a join beh.sessions s '+
+                             'on a.subjid = s.subjid where s.protocol = \'{}\' and a.subjid != 0 group by a.subjid'.format(self.selected_category))
                     
                 case 'Rig':
-                    query = ('select distinct a.subjid, a.status from met.animals a join beh.sessions s '+
-                             'on a.subjid = s.subjid where s.rigid = {} and a.subjid != 0'.format(self.selected_category))
+                    query = ('select distinct a.subjid, a.status, max(s.sessiondate) from met.animals a join beh.sessions s '+
+                             'on a.subjid = s.subjid where s.rigid = {} and a.subjid != 0 group by a.subjid'.format(self.selected_category))
                     
                 case 'Experimenter':
-                    query = ('select distinct a.subjid, a.status from met.animals a join beh.sessions s on a.subjid = s.subjid '+
-                             'join met.experimenters e on e.experid = a.experid where e.experid = {} and a.subjid != 0'.format(self.selected_category))
+                    query = ('select distinct a.subjid, a.status, max(s.sessiondate) from met.animals a join beh.sessions s on a.subjid = s.subjid '+
+                             'join met.experimenters e on e.experid = a.experid where e.experid = {} and a.subjid != 0 group by a.subjid'.format(self.selected_category))
                 
             cur.execute(query)
             vals = cur.fetchall()
@@ -394,7 +394,7 @@ class BehaviorTracker(QMainWindow):
             db.close()
     
             # Sort list of tuples 
-            self.subj_list = sorted(vals, key=lambda tup: (tup[1] == 'dead', tup[0]))
+            self.subj_list = sorted(vals, key=lambda tup: (tup[1] == 'dead', -tup[2].toordinal(), tup[0]))
         
         else:
             self.subj_list = []
