@@ -14,7 +14,7 @@ from qtpy.QtWidgets import (
     QMessageBox, QSplitter, QAbstractItemView, QFormLayout, QScrollArea, QFrame, QGroupBox, QHeaderView
 )
 from qtpy.QtCore import Qt, QSettings
-from qtpy.QtGui import QColor, QFont
+from qtpy.QtGui import QColor, QFont, QPalette
 import db_access
 from contextlib import contextmanager
 import traceback
@@ -69,6 +69,11 @@ class PaddingDelegate(QStyledItemDelegate):
         size.setWidth(size.width() + self.h_padding)
         size.setHeight(size.height() + self.v_padding)
         return size
+    
+def is_dark_mode():
+    palette = QApplication.palette()
+    bg_color = palette.color(QPalette.ColorRole.Window)
+    return bg_color.lightness() < 128  # Rough but effective check
 
 
 # %% App Code
@@ -182,6 +187,7 @@ class BehaviorTracker(QMainWindow):
         self.session_details_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         self.session_details_layout.setVerticalSpacing(12)
         self.session_details_layout.setHorizontalSpacing(15)
+        self.session_details_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         session_details_container.setLayout(self.session_details_layout)
         
         scroll = QScrollArea()
@@ -322,12 +328,27 @@ class BehaviorTracker(QMainWindow):
             
     def add_form_row(self, layout, label, value):
         value_field = QLabel(str(value))
-        value_field.setStyleSheet("""
-            QLabel {
-                background-color: white;
-                padding: 5px;
-            }
-        """)
+        value_field.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        
+       # Style fix for dark mode
+        if is_dark_mode():
+            style = """
+                QLabel {
+                    background-color: #2d2d2d;
+                    color: white;
+                    padding: 5px;
+                }
+            """
+        else:
+            style = """
+                QLabel {
+                    background-color: white;
+                    color: black;
+                    padding: 5px;
+                }
+            """
+    
+        value_field.setStyleSheet(style)
         layout.addRow(QLabel(label), value_field)
     
     # Database Query Methods
@@ -403,11 +424,16 @@ class BehaviorTracker(QMainWindow):
         self.subject_listbox.blockSignals(True)
         self.subject_listbox.clear()
         
+        if is_dark_mode():
+            dead_color = QColor(255,255,255,10)
+        else:
+            dead_color = QColor(10,10,10,10)
+        
         for item in self.subj_list:
             list_item = QListWidgetItem(str(item[0]))
             # if animal is dead, make background slightly grayer
             if item[1] == 'dead':
-                list_item.setBackground(QColor(10,10,10,10))
+                list_item.setBackground(dead_color)
                 
             self.subject_listbox.addItem(list_item)
         
