@@ -174,6 +174,7 @@ class BehaviorTracker(QMainWindow):
         self.subj_details_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         self.subj_details_layout.setVerticalSpacing(12)
         self.subj_details_layout.setHorizontalSpacing(15)
+        self.subj_details_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         subj_details_container.setLayout(self.subj_details_layout)
         
         subj_label_box_layout = QVBoxLayout()
