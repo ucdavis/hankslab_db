@@ -70,7 +70,7 @@ def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_
         sel = np.append(trial_num_diffs != 0, True)
         trial_start_ts = trial_start_ts[sel]
 
-    signal_data = {k:v for k,v in data.items() if k != ttl_name}
+    signal_data = {k:v for k,v in data.items() if k != ttl_name and 'values' in v}
     dec_time, dec_signals, dec_info = acq.decimate_data(signal_data, target_dt = target_dt)
 
     # no need to persist the entire timestamp array, just the elements needed to recompute
