@@ -101,7 +101,7 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
 
                 # get previous reward probability of current choice, excluding no responses
                 # this only works if we format one session at a time
-                sess_data['choice_prev_prob'] = np.nan
+                sess_data['choice_prev_prob'] = None
                 resp_sel = sess_data['hit'] == True
                 sess_data_resp = sess_data[resp_sel]
                 prev_p_right = sess_data_resp['p_reward_right'][:-1].to_numpy()
@@ -111,6 +111,36 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
                 chose_right_sel = np.insert(sess_data['chose_right'][1:], 0, False)
                 sess_data.loc[chose_left_sel,'choice_prev_prob'] = prev_p_left[chose_left_resp]
                 sess_data.loc[chose_right_sel,'choice_prev_prob'] = prev_p_right[~chose_left_resp]
+                
+                # populate previous and next trial information
+                # this only works if we format one session at a time
+                sess_data['prev_high_side'] = None
+                sess_data.iloc[1:, sess_data.columns.get_loc('prev_high_side')] = sess_data['high_side'].iloc[:-1]
+                
+                sess_data['prev_choice'] = None
+                sess_data.iloc[1:, sess_data.columns.get_loc('prev_choice')] = sess_data['choice'].iloc[:-1]
+                sess_data['next_choice'] = None
+                sess_data.iloc[:-1, sess_data.columns.get_loc('next_choice')] = sess_data['choice'].iloc[1:]
+                
+                sess_data['chose_prev_high'] = None
+                sess_data['switch'] = False
+                sess_data['stay'] = False
+                sess_data['next_switch'] = False
+                sess_data['next_stay'] = False
+                
+                prev_resp_sel = resp_sel.to_numpy().copy()
+                prev_resp_sel[resp_sel.idxmax()] = False
+                next_resp_sel = resp_sel.to_numpy().copy()
+                next_resp_sel[resp_sel[::-1].idxmax()] = False
+                
+                choices = sess_data_resp['choice'].to_numpy()
+                sess_data.loc[prev_resp_sel, 'chose_prev_high'] = choices[1:] == sess_data_resp['high_side'][:-1].to_numpy()
+                switch = choices[1:] != choices[:-1]
+                sess_data.loc[prev_resp_sel, 'switch'] = switch
+                sess_data.loc[prev_resp_sel, 'stay'] = ~switch
+                sess_data.loc[next_resp_sel, 'next_switch'] = switch
+                sess_data.loc[next_resp_sel, 'next_stay'] = ~switch
+                
                 
             case 'rewVolBandit':
 
@@ -139,15 +169,19 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
 
                 # populate previous and next trial information
                 # this only works if we format one session at a time
-                sess_data['prev_high_side'] = pd.NA
+                sess_data['prev_high_side'] = None
                 sess_data.iloc[1:, sess_data.columns.get_loc('prev_high_side')] = sess_data['high_side'].iloc[:-1]
                 
-                sess_data['next_choice'] = pd.NA
+                sess_data['prev_choice'] = None
+                sess_data.iloc[1:, sess_data.columns.get_loc('prev_choice')] = sess_data['choice'].iloc[:-1]
+                sess_data['next_choice'] = None
                 sess_data.iloc[:-1, sess_data.columns.get_loc('next_choice')] = sess_data['choice'].iloc[1:]
                 
-                sess_data['chose_prev_high'] = pd.NA
-                sess_data['prev_switch'] = pd.NA
-                sess_data['next_switch'] = pd.NA
+                sess_data['chose_prev_high'] = None
+                sess_data['prev_switch'] = False
+                sess_data['prev_stay'] = False
+                sess_data['next_switch'] = False
+                sess_data['next_stay'] = False
                 resp_sel = sess_data['hit'] == True
                 sess_data_resp = sess_data[resp_sel]
                 
@@ -160,20 +194,10 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
                 sess_data.loc[prev_resp_sel, 'chose_prev_high'] = choices[1:] == sess_data_resp['high_side'][:-1].to_numpy()
                 switch = choices[1:] != choices[:-1]
                 sess_data.loc[prev_resp_sel, 'prev_switch'] = switch
+                sess_data.loc[prev_resp_sel, 'prev_stay'] = ~switch
                 sess_data.loc[next_resp_sel, 'next_switch'] = switch
-                
-                # # get previous reward probability of current choice, excluding no responses
-                # sess_data['choice_prev_prob'] = np.nan
-                # resp_sel = sess_data['hit'] == True
-                # sess_data_resp = sess_data[resp_sel]
-                # prev_p_right = sess_data_resp['p_reward_right'][:-1].to_numpy()
-                # prev_p_left = sess_data_resp['p_reward_left'][:-1].to_numpy()
-                # chose_left_resp = sess_data_resp['chose_left'][1:]
-                # chose_left_sel = np.insert(sess_data['chose_left'][1:], 0, False)
-                # chose_right_sel = np.insert(sess_data['chose_right'][1:], 0, False)
-                # sess_data.loc[chose_left_sel,'choice_prev_prob'] = prev_p_left[chose_left_resp]
-                # sess_data.loc[chose_right_sel,'choice_prev_prob'] = prev_p_right[~chose_left_resp]
-                
+                sess_data.loc[next_resp_sel, 'next_stay'] = ~switch
+
             case 'temporalChoice':
                 # make sure empty cpoke in columns are nans
                 sess_data['cpoke_in_time'] = sess_data['cpoke_in_time'].apply(lambda x: x if utils.is_scalar(x) else np.nan)

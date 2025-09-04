@@ -622,6 +622,41 @@ def get_active_subj_stage(protocol=None, subj_ids=None, stage_num=None, stage_na
     return df
 
 
+def get_protocol_subject_info(protocol, subj_ids=None, stage_num=None, stage_name=None):
+    '''Gets all subjects who have data for the given protocol.
+    Can optionally filter results by subject ids and stage'''
+
+    db = _get_connector()
+
+    # get all the data
+    cur = db.cursor(buffered=True, dictionary=True)
+    cur.execute('SELECT distinct a.subjid, b.protocol, b.settingsname, b.stage from met.subject_settings a '+
+                'join met.settings b on a.settingsid = b.settingsid where protocol=\'{}\' ORDER BY subjid'
+                .format(protocol))
+    data = cur.fetchall()
+
+    cur.close()
+    db.close()
+
+    # format into a dataframe
+    df = pd.DataFrame.from_dict(data).rename(columns={'startstage': 'stage'})
+
+    # filter out subject 0
+    df = df[~df['subjid'].isin([0])]
+    
+    # optionally filter based on subject ids and stage
+    if not subj_ids is None:
+        df = df[df['subjid'].isin(subj_ids)]
+    
+    if not stage_num is None:
+        df = df[df['stage'] == stage_num]
+
+    if not stage_name is None:
+        df = df[df['settingsname'].str.fullmatch(stage_name, case=False)]
+
+    return df
+
+
 def get_sess_protocol_stage(sess_ids):
     ''' Get the protocol name and stage number for all the given session ids'''
 

@@ -16,7 +16,6 @@ import pyutils.utils as utils
 from collections import Counter
 import time
 
-
 # make this class abstract so other local database classed can inherit and implement their unique
 # handling of behaviorally relevant method variables
 class LocalDB_Base(ABC):
@@ -29,14 +28,14 @@ class LocalDB_Base(ABC):
         ----------
         save_locally : Whether to save the data locally. The default is True.
         reload : Whether to reload the data from the database. The default is False.
-        data_dir : The directory where the local data will be persisted. The default is ~/db_data/[protocol_name].
+        data_dir : The directory where the local data will be persisted. The default is ~/db_data.
 
         '''
 
         self._save_locally = save_locally
 
         if data_dir is None or not path.exists(data_dir):
-            data_dir = path.join(utils.get_user_home(), 'db_data', self.protocol_name)
+            data_dir = path.join(utils.get_user_home(), 'db_data')
 
         self.__data_dir = data_dir
         self.__load_local_data()
@@ -119,57 +118,6 @@ class LocalDB_Base(ABC):
         return beh_data
 
 
-    def get_subj_behavior_data(self, subj_ids, reload=False):
-        '''
-        Gets all behavioral data with unit data for the given subject ids
-
-        Parameters
-        ----------
-        subj_ids : list of subject ids
-
-        Returns
-        -------
-        A pandas table of behavioral data
-        '''
-
-        sess_ids = db_access.get_subj_unit_sess_ids(subj_ids)
-        return self.get_behavior_data(utils.flatten(sess_ids), reload)
-
-
-    def get_unit_behavior_data(self, unit_ids, reload=False):
-        '''
-        Gets all behavioral data for the given unit ids
-
-        Parameters
-        ----------
-        unit_ids : list of unit ids
-
-        Returns
-        -------
-        A pandas table of behavioral data
-        '''
-
-        sess_ids = db_access.get_unit_sess_ids(unit_ids)
-        return self.get_behavior_data(sess_ids.keys(), reload)
-
-
-    def get_local_behavior_data(self):
-        '''
-        Gets all behavioral data stored locally
-
-        Returns
-        -------
-        A pandas table of behavioral data
-        '''
-
-        return self.get_behavior_data(self.local_sessions['sessid'])
-
-
-    def get_protocol_unit_subject_ids(self):
-        ''' Get all subject ids from the database that have unit data for the particular protocol '''
-        return db_access.get_unit_protocol_subj_ids(self.protocol_name)
-
-
     def get_unit_data(self, unit_ids, reload=False):
         '''
         Gets unit data for the given ids and optionally persists the retreived data
@@ -193,7 +141,10 @@ class LocalDB_Base(ABC):
         else:
             missing_units = np.setdiff1d(unit_ids, self.local_units['unitid'])
 
-        unit_sess_ids = db_access.get_unit_sess_ids(unit_ids)
+        if any(missing_units):
+            unit_sess_ids = db_access.get_unit_sess_ids(unit_ids)
+        else:
+            unit_sess_ids = self.local_units[self.local_units['unitid'].isin(unit_ids)].groupby('sessid')['unitid'].agg(list).to_dict()
 
         # go through the units by session and either load existing or save new data
         for sess_id, sess_unit_ids in unit_sess_ids.items():
@@ -235,23 +186,6 @@ class LocalDB_Base(ABC):
         return unit_data.sort_values('unitid').reset_index()
 
 
-    def get_subj_unit_data(self, subj_ids, reload=False):
-        '''
-        Gets all unit data for the given subject ids
-
-        Parameters
-        ----------
-        subj_ids : list of subject ids
-
-        Returns
-        -------
-        A pandas table of unit data
-        '''
-
-        unit_ids = db_access.get_subj_unit_ids(subj_ids)
-        return self.get_unit_data(utils.flatten(unit_ids), reload)
-
-
     def get_sess_unit_data(self, sess_ids, reload=False):
         '''
         Gets all unit data for the given session ids
@@ -265,20 +199,12 @@ class LocalDB_Base(ABC):
         A pandas table of unit data
         '''
 
-        unit_ids = db_access.get_sess_unit_ids(sess_ids)
+        if not reload and all([sess_id in self.local_units['sessid'].values for sess_id in sess_ids]):
+            unit_ids = self.local_units[self.local_units['sessid'].isin(sess_ids)].groupby('sessid')['unitid'].agg(list).to_dict()
+        else:
+            unit_ids = db_access.get_sess_unit_ids(sess_ids)
+            
         return self.get_unit_data(utils.flatten(unit_ids), reload)
-
-
-    def get_local_unit_data(self):
-        '''
-        Gets all unit data stored locally
-
-        Returns
-        -------
-        A pandas table of unit data
-        '''
-
-        return self.get_unit_data(self.local_units['unitid'])
 
 
     def get_fp_data(self, fp_ids, reload=False):
@@ -303,8 +229,11 @@ class LocalDB_Base(ABC):
             missing_ids = fp_ids
         else:
             missing_ids = np.setdiff1d(fp_ids, self.local_fp_data['fpid'])
-
-        fp_sess_ids = db_access.get_fp_sess_ids(fp_ids)
+            
+        if any(missing_ids):
+            fp_sess_ids = db_access.get_fp_sess_ids(fp_ids)
+        else:
+            fp_sess_ids = self.local_fp_data[self.local_fp_data['fpid'].isin(fp_ids)].groupby('sessid')['fpid'].agg(list).to_dict()
 
         # go through the fp ids by session and either load existing or save new data
         for sess_id, sess_fp_ids in fp_sess_ids.items():
@@ -389,25 +318,45 @@ class LocalDB_Base(ABC):
         A pandas table of fp data
         '''
 
-        # if all([sess_id in self.local_fp_data['sessid'].values for sess_id in sess_ids]):
-        #     fp_ids = self.local_fp_data[self.local_fp_data['sessid'].isin(sess_ids)]['fpid']
-        # else:
-        fp_ids = db_access.get_sess_fp_ids(sess_ids)
+        if not reload and all([sess_id in self.local_fp_data['sessid'].values for sess_id in sess_ids]):
+            fp_ids = self.local_fp_data[self.local_fp_data['sessid'].isin(sess_ids)].groupby('sessid')['fpid'].agg(list).to_dict()
+        else:
+            fp_ids = db_access.get_sess_fp_ids(sess_ids)
+        
         return self.get_fp_data(utils.flatten(fp_ids), reload)
 
+    
+    #%% Packaging Methods
+    
+    def package_beh_data(self, sess_ids, save_path, reload=False):
+        
+        data = self.get_behavior_data(sess_ids, reload=reload)
+        
+        utils.check_make_dir(path.dirname(save_path))
 
-    def get_local_fp_data(self):
-        '''
-        Gets all fp data stored locally
+        with open(save_path, 'wb') as f:
+            pickle.dump(data, f)
+            
+    def package_unit_data(self, sess_ids, save_path, reload=False):
+        
+        data = self.get_sess_unit_data(sess_ids, reload=reload)
+        
+        utils.check_make_dir(path.dirname(save_path))
 
-        Returns
-        -------
-        A pandas table of fp data
-        '''
+        with open(save_path, 'wb') as f:
+            pickle.dump(data, f)
+            
+            
+    def package_fp_data(self, sess_ids, save_path, reload=False):
+        
+        data = self.get_sess_fp_data(sess_ids, reload=reload)
+        
+        utils.check_make_dir(path.dirname(save_path))
 
-        return self.get_fp_data(self.local_fp_data['unitid'])
+        with open(save_path, 'wb') as f:
+            pickle.dump(data, f)
 
-    ## Abstract Properties and Methods ##
+    #%% Abstract Properties and Methods
 
     @property
     @abstractmethod
