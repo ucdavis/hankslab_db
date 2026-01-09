@@ -11,10 +11,16 @@ import glob
 import pandas as pd
 import numpy as np
 import pickle
-import db_access
-import pyutils.utils as utils
+from pyutils import utils, cluster_utils
 from collections import Counter
 import time
+import db_access
+from filelock import FileLock
+
+on_cluster = cluster_utils.on_cluster()
+
+def default_data_dir():
+    return path.join(utils.get_user_home(), 'db_data')
 
 # make this class abstract so other local database classed can inherit and implement their unique
 # handling of behaviorally relevant method variables
@@ -34,8 +40,10 @@ class LocalDB_Base(ABC):
 
         self._save_locally = save_locally
 
-        if data_dir is None or not path.exists(data_dir):
-            data_dir = path.join(utils.get_user_home(), 'db_data')
+        if data_dir is None:
+            data_dir = default_data_dir()
+        elif not path.exists(data_dir):
+            utils.check_make_dir(data_dir)
 
         self.__data_dir = data_dir
         self.__load_local_data()
@@ -85,7 +93,7 @@ class LocalDB_Base(ABC):
         A pandas table of behavioral data
         '''
 
-        if utils.is_scalar(sess_ids):
+        if not utils.is_list(sess_ids):
             sess_ids = [sess_ids]
 
         sess_ids = sorted(sess_ids)
@@ -97,7 +105,7 @@ class LocalDB_Base(ABC):
 
             if path.exists(data_path) and not reload:
                 sess_data = pd.read_pickle(data_path)
-            else:  # reload data
+            elif not on_cluster:  # reload data
                 sess_data = db_access.get_session_data(sess_id)
                 if len(sess_data) == 0:
                     continue
@@ -109,6 +117,8 @@ class LocalDB_Base(ABC):
                     sess_data.to_pickle(data_path)
 
                 self.__update_local_sessions(sess_data)
+            else:
+                print('Cannot find session data for {} at {}'.format(sess_id, data_path))
 
             beh_data = pd.concat([beh_data, sess_data], ignore_index=True)
 
@@ -132,6 +142,9 @@ class LocalDB_Base(ABC):
         A pandas table of unit data
         '''
 
+        if not utils.is_list(unit_ids):
+            unit_ids = [unit_ids]
+
         unit_ids = sorted(unit_ids)
         unit_data = pd.DataFrame()
 
@@ -142,7 +155,11 @@ class LocalDB_Base(ABC):
             missing_units = np.setdiff1d(unit_ids, self.local_units['unitid'])
 
         if any(missing_units):
-            unit_sess_ids = db_access.get_unit_sess_ids(unit_ids)
+            if on_cluster:
+                print('Cannot find the unit data for {}'.format(str.join([str(i) for i in missing_units], ',')))
+                unit_sess_ids = self.local_units[self.local_units['unitid'].isin(unit_ids)].groupby('sessid')['unitid'].agg(list).to_dict()
+            else:
+                unit_sess_ids = db_access.get_unit_sess_ids(unit_ids)
         else:
             unit_sess_ids = self.local_units[self.local_units['unitid'].isin(unit_ids)].groupby('sessid')['unitid'].agg(list).to_dict()
 
@@ -198,11 +215,19 @@ class LocalDB_Base(ABC):
         -------
         A pandas table of unit data
         '''
+        
+        if not utils.is_list(sess_ids):
+            sess_ids = [sess_ids]
 
         if not reload and all([sess_id in self.local_units['sessid'].values for sess_id in sess_ids]):
             unit_ids = self.local_units[self.local_units['sessid'].isin(sess_ids)].groupby('sessid')['unitid'].agg(list).to_dict()
         else:
-            unit_ids = db_access.get_sess_unit_ids(sess_ids)
+            if on_cluster:
+                missing_sessions = np.setdiff1d(sess_ids, np.unique(self.local_units['sessid']))
+                print('Cannot find the unit data from sessions {}'.format(str.join([str(i) for i in missing_sessions], ',')))
+                unit_ids = self.local_units[self.local_units['sessid'].isin(sess_ids)].groupby('sessid')['unitid'].agg(list).to_dict()
+            else:
+                unit_ids = db_access.get_sess_unit_ids(sess_ids)
             
         return self.get_unit_data(utils.flatten(unit_ids), reload)
 
@@ -221,6 +246,9 @@ class LocalDB_Base(ABC):
         A dictionary of fiber photometry data and metadata associated with it, keyed by subject id and session id
         '''
 
+        if not utils.is_list(fp_ids):
+            fp_ids = [fp_ids]
+
         fp_ids = sorted(fp_ids)
         fp_data = pd.DataFrame()
 
@@ -231,7 +259,11 @@ class LocalDB_Base(ABC):
             missing_ids = np.setdiff1d(fp_ids, self.local_fp_data['fpid'])
             
         if any(missing_ids):
-            fp_sess_ids = db_access.get_fp_sess_ids(fp_ids)
+            if on_cluster:
+                print('Cannot find fp data for {}'.format(str.join([str(i) for i in missing_ids], ',')))
+                fp_sess_ids = self.local_fp_data[self.local_fp_data['fpid'].isin(fp_ids)].groupby('sessid')['fpid'].agg(list).to_dict()
+            else:
+                fp_sess_ids = db_access.get_fp_sess_ids(fp_ids)
         else:
             fp_sess_ids = self.local_fp_data[self.local_fp_data['fpid'].isin(fp_ids)].groupby('sessid')['fpid'].agg(list).to_dict()
 
@@ -318,10 +350,18 @@ class LocalDB_Base(ABC):
         A pandas table of fp data
         '''
 
+        if not utils.is_list(sess_ids):
+            sess_ids = [sess_ids]
+
         if not reload and all([sess_id in self.local_fp_data['sessid'].values for sess_id in sess_ids]):
             fp_ids = self.local_fp_data[self.local_fp_data['sessid'].isin(sess_ids)].groupby('sessid')['fpid'].agg(list).to_dict()
         else:
-            fp_ids = db_access.get_sess_fp_ids(sess_ids)
+            if on_cluster:
+                missing_sessions = np.setdiff1d(sess_ids, np.unique(self.local_fp_data['sessid']))
+                print('Cannot find the fp data from sessions {}'.format(str.join([str(i) for i in missing_sessions], ',')))
+                fp_ids = self.local_fp_data[self.local_fp_data['sessid'].isin(sess_ids)].groupby('sessid')['fpid'].agg(list).to_dict()
+            else:
+                fp_ids = db_access.get_sess_fp_ids(sess_ids)
         
         return self.get_fp_data(utils.flatten(fp_ids), reload)
 
@@ -381,47 +421,53 @@ class LocalDB_Base(ABC):
     ## Private Infrastructure Methods ##
 
     def __load_local_data(self):
-        self.__local_data_path = path.join(self.data_dir, 'local_data.pkl')
+        lock = FileLock('local_db.lock')
+        with lock:
+            self.__local_data_path = path.join(self.data_dir, 'local_data.pkl')
+    
+            reload = False
+            if path.exists(self.__local_data_path):
+                with open(self.__local_data_path, 'rb') as f:
+                    self.__local_data = pickle.load(f)
+    
+                reload = Counter(self.__local_data.keys()) != Counter(['units', 'fp_data', 'sessions'])
+            else:
+                reload = True
+    
+            if reload:
+                self.__local_data = {'units': pd.DataFrame(columns=['unitid', 'subjid', 'sessid']),
+                                     'fp_data': pd.DataFrame(columns=['fpid', 'subjid', 'sessid']),
+                                     'sessions': pd.DataFrame(columns=['sessid', 'subjid', 'sessiondate'])}
+    
+                # check if any data is already persisted and recreate file
+                path_search = self._get_sess_unit_path('*')
+                files = glob.glob(path_search)
+                for file in files:
+                    self.__update_local_units(pd.read_pickle(file), False)
+    
+                path_search = self._get_sess_fp_path('*')
+                files = glob.glob(path_search)
+                for file in files:
+                    self.__update_local_sessions(pd.read_pickle(file), False)
+    
+                path_search = self._get_sess_beh_path('*')
+                files = glob.glob(path_search)
+                for file in files:
+                    self.__update_local_sessions(pd.read_pickle(file), False)
 
-        reload = False
-        if path.exists(self.__local_data_path):
-            with open(self.__local_data_path, 'rb') as f:
-                self.__local_data = pickle.load(f)
-
-            reload = Counter(self.__local_data.keys()) != Counter(['units', 'fp_data', 'sessions'])
-        else:
-            reload = True
-
-        if reload:
-            self.__local_data = {'units': pd.DataFrame(columns=['unitid', 'subjid', 'sessid']),
-                                 'fp_data': pd.DataFrame(columns=['fpid', 'subjid', 'sessid']),
-                                 'sessions': pd.DataFrame(columns=['sessid', 'subjid', 'sessiondate'])}
-
-            # check if any data is already persisted and recreate file
-            path_search = self._get_sess_unit_path('*')
-            files = glob.glob(path_search)
-            for file in files:
-                self.__update_local_units(pd.read_pickle(file), False)
-
-            path_search = self._get_sess_fp_path('*')
-            files = glob.glob(path_search)
-            for file in files:
-                self.__update_local_sessions(pd.read_pickle(file), False)
-
-            path_search = self._get_sess_beh_path('*')
-            files = glob.glob(path_search)
-            for file in files:
-                self.__update_local_sessions(pd.read_pickle(file), False)
-
-            self.__save_local_data()
+                self.__save_local_data(lock)
 
 
-    def __save_local_data(self):
-        if self._save_locally:
-            utils.check_make_dir(self.__local_data_path)
-
-            with open(self.__local_data_path, 'wb') as f:
-                pickle.dump(self.__local_data, f)
+    def __save_local_data(self, lock=None):
+        if lock is None:
+            lock = FileLock('local_db.lock')
+            
+        with lock:
+            if self._save_locally:
+                utils.check_make_dir(self.__local_data_path)
+    
+                with open(self.__local_data_path, 'wb') as f:
+                    pickle.dump(self.__local_data, f)
 
     def __update_local_units(self, unit_data, save=True):
         self.__local_data['units'] = pd.concat([self.__local_data['units'], unit_data[['unitid', 'subjid', 'sessid']]],
