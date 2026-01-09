@@ -17,7 +17,7 @@ import numpy as np
 def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_dict=None, data_path=None,
                        target_dt=0.005, new_format=True, print_file_struct=True, print_attr=False, initial_dir=None):
 
-    print('Packaging data for subject {}...'.format(subj_id))
+    print('Packaging data for subject {} session {}...'.format(subj_id, sess_id))
     
     if data_path is None:
         if initial_dir is None:
@@ -38,15 +38,15 @@ def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_
 
     signal_name_dict = {ttl_name: {'time': 'DigitalIO/Time', 'values': 'DigitalIO/DIO01'}}
     if new_format:
-        signal_name_dict.update({'{}_{}'.format(r, w):
-                                 {'time': 'LockInAOUT0{}/Time'.format(wavelength_dict[w]),
-                                  'values': 'LockInAOUT0{}/AIN0{}'.format(wavelength_dict[w], region_dict[r])}
-                                 for r in region_dict.keys() for w in wavelength_dict.keys()})
+        signal_name_dict.update({'{}_{}'.format(r, wavelength_dict[c]):
+                                 {'time': 'LockInAOUT0{}/Time'.format(c),
+                                  'values': 'LockInAOUT0{}/AIN0{}'.format(c, region_dict[r])}
+                                 for r in region_dict.keys() for c in wavelength_dict.keys()})
     else:
-        signal_name_dict.update({'{}_{}'.format(r, w):
-                                 {'time': 'AIN0{}xAOUT0{}-LockIn/Time'.format(region_dict[r], wavelength_dict[w]),
-                                  'values': 'AIN0{}xAOUT0{}-LockIn/Values'.format(region_dict[r], wavelength_dict[w])}
-                                 for r in region_dict.keys() for w in wavelength_dict.keys()})
+        signal_name_dict.update({'{}_{}'.format(r, wavelength_dict[c]):
+                                 {'time': 'AIN0{}xAOUT0{}-LockIn/Time'.format(region_dict[r], c),
+                                  'values': 'AIN0{}xAOUT0{}-LockIn/Values'.format(region_dict[r], c)}
+                                 for r in region_dict.keys() for c in wavelength_dict.keys()})
 
 
     data = dor.get_specific_data(data_path, dor_signal_path, signal_name_dict)
