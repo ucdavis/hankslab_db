@@ -42,8 +42,6 @@ class LocalDB_Base(ABC):
 
         if data_dir is None:
             data_dir = default_data_dir()
-        elif not path.exists(data_dir):
-            utils.check_make_dir(data_dir)
 
         self.__data_dir = data_dir
         self.__load_local_data()
