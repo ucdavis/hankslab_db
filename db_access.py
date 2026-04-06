@@ -774,7 +774,7 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
     cur.execute('select exists(select 1 from met.fp_data where implant_id={} and sessid={})'.format(implant_id, sess_id))
     exists = bool(cur.fetchone()[0])
     if exists:
-        print('FP data for session {} and implant {} was already added to the database. Will update instead'.format(sess_id, implant_id))
+        print('FP data for session {} and region {} was already added to the database. Will update instead'.format(sess_id, region))
         __update(db, 'met.fp_data', data, 'implant_id={} and sessid={}'.format(implant_id, sess_id), cur=cur)
     else:
         __insert(db, 'met.fp_data', data, cur=cur)
