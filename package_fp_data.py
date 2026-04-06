@@ -14,7 +14,7 @@ from tkinter import filedialog
 import numpy as np
 
 
-def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_dict=None, data_path=None,
+def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_dict=None, data_path=None, io_channel_map=None,
                        target_dt=0.005, new_format=True, print_file_struct=True, print_attr=False, initial_dir=None):
 
     print('Packaging data for subject {} session {}...'.format(subj_id, sess_id))
@@ -35,18 +35,23 @@ def package_doric_data(subj_id, sess_id, region_dict, wavelength_dict, comments_
 
     dor_signal_path = '/DataAcquisition/FPConsole/Signals/Series0001/'
     ttl_name = 'ttl'
+    
+    if io_channel_map is None:
+        out_channels = list(wavelength_dict.keys())
+        in_channels = [v for v in region_dict.values()]
+        io_channel_map = {i: out_channels for i in in_channels}
 
     signal_name_dict = {ttl_name: {'time': 'DigitalIO/Time', 'values': 'DigitalIO/DIO01'}}
     if new_format:
         signal_name_dict.update({'{}_{}'.format(r, wavelength_dict[c]):
                                  {'time': 'LockInAOUT0{}/Time'.format(c),
                                   'values': 'LockInAOUT0{}/AIN0{}'.format(c, region_dict[r])}
-                                 for r in region_dict.keys() for c in wavelength_dict.keys()})
+                                 for r in region_dict.keys() for c in wavelength_dict.keys() if c in io_channel_map[region_dict[r]]})
     else:
         signal_name_dict.update({'{}_{}'.format(r, wavelength_dict[c]):
                                  {'time': 'AIN0{}xAOUT0{}-LockIn/Time'.format(region_dict[r], c),
                                   'values': 'AIN0{}xAOUT0{}-LockIn/Values'.format(region_dict[r], c)}
-                                 for r in region_dict.keys() for c in wavelength_dict.keys()})
+                                 for r in region_dict.keys() for c in wavelength_dict.keys() if c in io_channel_map[region_dict[r]]})
 
 
     data = dor.get_specific_data(data_path, dor_signal_path, signal_name_dict)

@@ -734,7 +734,7 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
     implant_id = cur.fetchone()
 
     if implant_id is None:
-        raise Exception('No implants have been added for the given subject and region. Add an implant before adding data')
+        raise Exception('No implants have been added for subject {} and region {}. Add an implant before adding data'.format(subj_id, region))
     else:
         implant_id = implant_id[0]
 
