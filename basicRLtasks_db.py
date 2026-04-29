@@ -172,6 +172,9 @@ class LocalDB_BasicRLTasks(base_db.LocalDB_Base):
                 sess_data['prev_high_side'] = None
                 sess_data.iloc[1:, sess_data.columns.get_loc('prev_high_side')] = sess_data['high_side'].iloc[:-1]
                 
+                sess_data['prev_reward'] = None
+                sess_data.iloc[1:, sess_data.columns.get_loc('prev_reward')] = sess_data['reward'].iloc[:-1]
+                
                 sess_data['prev_choice'] = None
                 sess_data.iloc[1:, sess_data.columns.get_loc('prev_choice')] = sess_data['choice'].iloc[:-1]
                 sess_data['next_choice'] = None

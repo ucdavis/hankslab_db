@@ -782,7 +782,31 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
     print('Added FP data for subject {} in region {} to the database in {:.1f} s'.format(subj_id, region, time.perf_counter()-start))
 
     db.close()
+    
+def update_fp_time_data(subj_id, sess_id, region, time_data):
+    '''Add fiber photometry recording session data to the fp_data table'''
 
+    db = _get_connector()
+    cur = db.cursor()
+
+    start = time.perf_counter()
+
+    # get the appropriate implant
+    cur.execute('select id from met.fp_implants where subjid={} and region=\'{}\''.format(subj_id, region))
+    implant_id = cur.fetchone()
+
+    if implant_id is None:
+        raise Exception('No implants have been added for the given subject and region. Add an implant before adding data')
+    else:
+        implant_id = implant_id[0]
+
+    data = {'time_data': _to_json(time_data)}
+
+    __update(db, 'met.fp_data', data, 'implant_id={} and sessid={}'.format(implant_id, sess_id), cur=cur)
+
+    print('Added FP data for subject {} in region {} to the database in {:.1f} s'.format(subj_id, region, time.perf_counter()-start))
+
+    db.close()
 
 # %% PRIVATE METHODS
 
