@@ -779,7 +779,7 @@ def add_fp_data(subj_id, region, trial_start_ts, time_data, fp_data, sess_id=Non
     else:
         __insert(db, 'met.fp_data', data, cur=cur)
 
-    print('Added FP data for subject {} in region {} to the database in {:.1f} s'.format(subj_id, region, time.perf_counter()-start))
+    print('Added FP data for subject {} session {} in region {} to the database in {:.1f} s'.format(subj_id, sess_id, region, time.perf_counter()-start))
 
     db.close()
     
@@ -799,12 +799,18 @@ def update_fp_time_data(subj_id, sess_id, region, time_data):
         raise Exception('No implants have been added for the given subject and region. Add an implant before adding data')
     else:
         implant_id = implant_id[0]
+        
+    cur.execute('select exists(select 1 from met.fp_data where implant_id={} and sessid={})'.format(implant_id, sess_id))
+    exists = bool(cur.fetchone()[0])
+    
+    if not exists:
+        raise Exception('FP Data has not been added for subject {} session {} region {} to the database'.format(subj_id, sess_id, region))
 
     data = {'time_data': _to_json(time_data)}
 
     __update(db, 'met.fp_data', data, 'implant_id={} and sessid={}'.format(implant_id, sess_id), cur=cur)
 
-    print('Added FP data for subject {} in region {} to the database in {:.1f} s'.format(subj_id, region, time.perf_counter()-start))
+    print('Updated FP time data for subject {} session {} region {} to the database in {:.1f} s'.format(subj_id, sess_id, region, time.perf_counter()-start))
 
     db.close()
 
