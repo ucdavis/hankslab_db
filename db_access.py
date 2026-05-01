@@ -221,6 +221,31 @@ def get_fp_data(fp_ids):
 
     return fp_data.sort_values('fpid', ignore_index=True).infer_objects()
 
+def get_fp_trial_start_ts(sess_ids):
+    '''Gets all trial start timestamps in the fp data for the given session ids'''
+
+    if utils.is_scalar(sess_ids):
+        sess_ids = [sess_ids]
+
+    db = _get_connector()
+    cur = db.cursor(dictionary=True, buffered=True)
+
+    query = '''select distinct sessid, trial_start_timestamps from met.fp_data where sessid in ({0})
+               and subjid in (select distinct subjid from beh.sessions where sessid in ({0}))'''.format(','.join([str(i) for i in sess_ids]))
+
+    # load data
+    cur.execute(query)
+    data = cur.fetchall()
+    
+    cur.close()
+    db.close()
+
+    # read out data stored in json
+    for i, row in enumerate(data):
+        data[i]['trial_start_timestamps'] = np.array(_parse_json(row['trial_start_timestamps']))
+        
+    return {d['sessid']: d['trial_start_timestamps'] for d in data}
+
 
 # %% Get IDs
 
